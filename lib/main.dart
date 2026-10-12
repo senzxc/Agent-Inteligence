@@ -95,11 +95,11 @@ Widget statusBadge(
               text,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: theme.typography.small,
+              style: theme.typography.xSmall,
             ),
           )
         else
-          Text(text, style: theme.typography.small),
+          Text(text, style: theme.typography.xSmall),
       ],
     ),
   );
@@ -1046,7 +1046,7 @@ class _HomePageState extends State<HomePage> {
                                         const SizedBox(height: 4),
                                         Text(
                                           cabang.alamat,
-                                          style: theme.typography.small
+                                          style: theme.typography.xSmall
                                               .copyWith(
                                                 color: theme
                                                     .colorScheme

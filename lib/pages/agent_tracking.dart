@@ -17,7 +17,7 @@ const LinearGradient _brandGradient = LinearGradient(
   end: Alignment.centerRight,
 );
 
-const List<Color> _brandGradientColors = [Color(0xFF0D47A1), Color(0xFF1565C0)];
+const List<Color> _brandGradientColors = [Color(0xFF0D47A1), Color(0xFF1B72D7)];
 
 const BoxShadow _softComponentShadow = BoxShadow(
   color: Color(0x260F172A),
@@ -27,7 +27,11 @@ const BoxShadow _softComponentShadow = BoxShadow(
 
 AbstractButtonStyle _brandButtonStyle() {
   return ButtonStyle.primary().copyWith(
-    decoration: (_, _, defaultDecoration) {
+    decoration: (context, states, defaultDecoration) {
+      if (states.contains(WidgetState.disabled)) {
+        return defaultDecoration;
+      }
+
       final decoration = defaultDecoration is BoxDecoration
           ? defaultDecoration
           : const BoxDecoration();
@@ -600,7 +604,7 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
                   width: double.infinity,
                   height: 54,
                   child: Button(
-                    style: ButtonStyle.primary(),
+                    style: _brandButtonStyle(),
                     onPressed: _isLoading
                         ? null
                         : (_isTracking
