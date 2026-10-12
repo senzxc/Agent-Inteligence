@@ -329,161 +329,133 @@ class _LoginPageState extends State<LoginPage> {
     final theme = Theme.of(context);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFEAF3FF),
-      child: DecoratedBox(
-        decoration: const BoxDecoration(gradient: _pageBackgroundGradient),
-        child: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 400),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.card,
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: const [_softComponentShadow],
-                      ),
-                      child: Card(
-                        padding: const EdgeInsets.fromLTRB(28, 38, 28, 10),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            // ====================================
-                            // LOTTIE ANIMATION
-                            // ====================================
+      backgroundColor: const Color(0xFFFFFFFF),
+      child: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 400),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(28,38,28,10),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SvgPicture.asset(
+                          'assets/animations/Bumiputera.svg',
+                          width: 80,
+                          height: 80
+                        ),
+                        const SizedBox(height: 25),
 
-                            SvgPicture.asset(
-                              'assets/animations/Bumiputera.svg',
-                              width: 80,
-                              height: 80,
+                        const SizedBox(height: 6),
+
+                        Text(
+                          'Masuk dengan akun perusahaan yang terdaftar',
+                          textAlign: TextAlign.center,
+                          style: theme.typography.small.copyWith(
+                            color: theme.colorScheme.mutedForeground,
+                          ),
+                        ),
+                        const SizedBox(height: 30),
+
+                        Text(
+                          'Stambuk',
+                          style: theme.typography.small.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+
+                        const SizedBox(height: 8),
+
+                        TextField(
+                          controller: _usernameController,
+                          placeholder: const Text('Masukkan Stambuk'),
+                          features: [
+                            InputLeadingFeature(
+                              Icon(LucideIcons.user, size: 18),
                             ),
-
-                            const SizedBox(height: 25),
-
-                            // ====================================
-                            // TITLE
-                            // ====================================
-                            const SizedBox(height: 6),
-
-                            Text(
-                              'Masuk dengan akun perusahaan yang terdaftar',
-                              textAlign: TextAlign.center,
-                              style: theme.typography.small.copyWith(
-                                color: theme.colorScheme.mutedForeground,
-                              ),
-                            ),
-
-                            const SizedBox(height: 30),
-
-                            // ====================================
-                            // USERNAME
-                            // ====================================
-                            Text(
-                              'Stambuk',
-                              style: theme.typography.small.copyWith(
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-
-                            const SizedBox(height: 8),
-
-                            TextField(
-                              controller: _usernameController,
-                              placeholder: const Text('Masukkan stambuk'),
-                              features: [
-                                InputLeadingFeature(
-                                  Icon(LucideIcons.user, size: 18),
-                                ),
-                              ],
-                            ),
-
-                            const SizedBox(height: 18),
-
-                            // ====================================
-                            // PASSWORD
-                            // ====================================
-                            Text(
-                              'Password',
-                              style: theme.typography.small.copyWith(
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-
-                            const SizedBox(height: 8),
-
-                            TextField(
-                              controller: _passwordController,
-                              obscureText: true,
-                              placeholder: const Text('Masukkan password'),
-                              features: [
-                                InputLeadingFeature(
-                                  Icon(LucideIcons.keyRound, size: 18),
-                                ),
-                                const InputPasswordToggleFeature(),
-                              ],
-                            ),
-
-                            const SizedBox(height: 10),
-
-                            Text(
-                              'Lupa Password?',
-                              textAlign: TextAlign.right,
-                              style: TextStyle(
-                                color: Color(0xFF1565C0),
-                                fontSize: 13,
-                              ),
-                            ),
-
-                            const SizedBox(height: 18),
-
-                            // ====================================
-                            // LOGIN BUTTON
-                            // ====================================
-                            Button(
-                              style: _brandButtonStyle(),
-                              onPressed: _isLoggingIn ? null : _handleLogin,
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  const Text('MASUK'),
-                                  const SizedBox(width: 8),
-                                  if (_isLoggingIn)
-                                    SizedBox(
-                                      width: 14,
-                                      height: 14,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
-
-                            const SizedBox(height: 16),
-
-                            // ====================================
-                            // FOOTER
-                            // ====================================
                           ],
                         ),
-                      ),
+
+                        const SizedBox(height: 13),
+
+                        Text(
+                          'Password',
+                          style: theme.typography.small.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+
+                        const SizedBox(height: 8),
+
+                        TextField(
+                          controller: _passwordController,
+                          obscureText: true,
+                          placeholder: const Text('Masukkan password'),
+                          features: [
+                            InputLeadingFeature(
+                              Icon(LucideIcons.keyRound, size: 18),
+                            ),
+
+                            const InputPasswordToggleFeature(),
+                          ],
+                        ),
+
+                        const SizedBox(height: 10),
+
+                        const Text(
+                          'Lupa Password?',
+                          textAlign: TextAlign.right,
+                          style: TextStyle(
+                            color: Color(0xFF1565C0),
+                            fontSize: 13,
+                          ),
+                        ),
+
+                        const SizedBox(height: 18),
+
+                        Button(
+                          style: _brandButtonStyle(),
+                          onPressed:
+                            _isLoggingIn ? null : _handleLogin,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Text('MASUK'),
+                              const SizedBox(width: 7),
+                              if (_isLoggingIn)
+                              SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        const SizedBox(height: 16),
+                      ],
                     ),
-                    const SizedBox(height: 16),
-                    Text(
-                      '© Agent Intelligence Tracker 2026',
-                      textAlign: TextAlign.center,
-                      style: theme.typography.xSmall.copyWith(
-                        color: theme.colorScheme.mutedForeground,
-                      ),
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  Text(
+                    '0 Agent Intelegence Tracker 2026',
+                    textAlign: TextAlign.center,
+                    style: theme.typography.xSmall.copyWith(
+                      color: theme.colorScheme.mutedForeground,
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ),
