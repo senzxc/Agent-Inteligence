@@ -831,7 +831,7 @@ class _HomePageState extends State<HomePage> {
                     displayName,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: theme.typography.h2.copyWith(
+                    style: theme.typography.h3.copyWith(
                       fontWeight: FontWeight.bold,
                       color: Colors.white,
                     ),

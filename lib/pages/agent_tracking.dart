@@ -374,6 +374,7 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
                               style: TextStyle(
                                 color: Color(0xFF14264D),
                                 fontWeight: FontWeight.w700,
+                                fontSize: 16
                               ),
                             ),
                             const SizedBox(height: 4),
