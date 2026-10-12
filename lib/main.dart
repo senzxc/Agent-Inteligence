@@ -1,5 +1,7 @@
 import 'package:flutter/services.dart';
 
+import 'pages/agent_tracking.dart';
+
 import 'package:flutter_map/flutter_map.dart' as flutter_map;
 import 'package:flutter_svg/svg.dart';
 import 'package:latlong2/latlong.dart';
@@ -225,6 +227,7 @@ class BusinessIntelligenceApp extends StatelessWidget {
         '/': (context) => const LoginPage(),
         '/home': (context) => const HomePage(),
         '/maps': (context) => const MapsPage(),
+        '/agent-tracking': (context) => const AgentTrackingPage(),
       },
     );
   }
@@ -507,7 +510,7 @@ void _showLogoutDialog(BuildContext context) {
             borderRadius: BorderRadius.circular(16),
             child: ModalContainer(
               padding: EdgeInsets.zero,
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(150),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -677,6 +680,8 @@ class _HomePageState extends State<HomePage> {
   List<Map<String, dynamic>> _kantorList = [];
   bool _isLoadingKantor = true;
   bool _hasLoadedKantor = false;
+  bool _isAgentTrackingHovered = false;
+  bool _isAgentTrackingPressed = false;
 
   @override
   void didChangeDependencies() {
@@ -881,6 +886,92 @@ class _HomePageState extends State<HomePage> {
                     ),
                   ),
                 ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+              child: MouseRegion(
+                onEnter: (_) {
+                  setState(() => _isAgentTrackingHovered = true);
+                },
+                onExit: (_) {
+                  setState(() => _isAgentTrackingHovered = false);
+                },
+                child: GestureDetector(
+                  onTap: () {
+                    Navigator.pushNamed(context, '/agent-tracking');
+                  },
+                  onTapDown: (_) {
+                    setState(() => _isAgentTrackingPressed = true);
+                  },
+                  onTapUp: (_) {
+                    setState(() => _isAgentTrackingPressed = false);
+                  },
+                  onTapCancel: () {
+                    setState(() => _isAgentTrackingPressed = false);
+                  },
+                  child: AnimatedScale(
+                    scale: _isAgentTrackingPressed
+                        ? 0.98
+                        : _isAgentTrackingHovered
+                        ? 1.01
+                        : 1,
+                    duration: const Duration(milliseconds: 140),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(18),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: _brandGradientColors,
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0x260D47A1),
+                            blurRadius: _isAgentTrackingHovered ? 20 : 14,
+                            offset: const Offset(0, 6),
+                          ),
+                        ],
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(
+                            LucideIcons.mapPin,
+                            color: Colors.white,
+                            size: 32,
+                          ),
+                          SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Agent Tracking',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                SizedBox(height: 5),
+                                Text(
+                                  'Uji GPS dan pantau lokasi perangkat',
+                                  style: TextStyle(
+                                    color: Color(0xFFE3EEFF),
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Icon(LucideIcons.chevronRight, color: Colors.white),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ),
             Padding(
