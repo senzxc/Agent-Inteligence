@@ -26,7 +26,7 @@ const activeAgents = new Map();
 // Role yang boleh memantau seluruh agen.
 // Sesuaikan nilainya dengan LEVEL_USER sebenarnya di Oracle.
 const TRACKING_ADMIN_LEVELS = (
-    process.env.TRACKING_ADMIN_LEVELS || 'ADMIN'
+    process.env.TRACKING_ADMIN_LEVELS || 'A'
 )
     .split(',')
     .map(role => role.trim().toUpperCase())
@@ -293,6 +293,25 @@ app.post(
         return res.status(201).json({
             success: true,
             message: 'Berhasil mulai bertugas',
+            data: agent,
+        });
+    }
+);
+
+// ========================================
+// AGENT TRACKING: CURRENT USER STATUS
+// ========================================
+
+app.get(
+    '/api/agent-tracking/status',
+    authenticate,
+    (req, res) => {
+        const stambuk = String(req.authUser.STAMBUK);
+        const agent = activeAgents.get(stambuk) ?? null;
+
+        return res.json({
+            success: true,
+            active: agent !== null,
             data: agent,
         });
     }
