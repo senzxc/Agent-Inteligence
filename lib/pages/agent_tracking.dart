@@ -7,15 +7,15 @@ import 'package:latlong2/latlong.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 const Color _blueDark = Color(0xFF0D47A1);
-const Color _blueLight = Color(0xFF2196F3);
+// const Color _blueLight = Color(0xFF2196F3);
 const Color _pageStart = Color(0xFFF8FBFF);
 const Color _pageEnd = Color(0xFFEAF3FF);
 
-const LinearGradient _brandGradient = LinearGradient(
-  colors: [_blueDark, _blueLight],
-  begin: Alignment.centerLeft,
-  end: Alignment.centerRight,
-);
+// const LinearGradient _brandGradient = LinearGradient(
+//   colors: [_blueDark, _blueLight],
+//   begin: Alignment.centerLeft,
+//   end: Alignment.centerRight,
+// );
 
 const List<Color> _brandGradientColors = [Color(0xFF0D47A1), Color(0xFF1B72D7)];
 
