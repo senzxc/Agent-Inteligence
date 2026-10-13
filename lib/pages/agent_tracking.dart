@@ -1,10 +1,10 @@
-
 import 'dart:async';
 
 import 'package:flutter_map/flutter_map.dart' as flutter_map;
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
+
 import '../services/api_service.dart';
 
 const Color _blueDark = Color(0xFF0D47A1);
@@ -53,13 +53,11 @@ class AgentTrackingPage extends StatefulWidget {
   const AgentTrackingPage({super.key});
 
   @override
-  State<AgentTrackingPage> createState() =>
-      _AgentTrackingPageState();
+  State<AgentTrackingPage> createState() => _AgentTrackingPageState();
 }
 
 class _AgentTrackingPageState extends State<AgentTrackingPage> {
-  final flutter_map.MapController _mapController =
-      flutter_map.MapController();
+  final flutter_map.MapController _mapController = flutter_map.MapController();
 
   StreamSubscription<Position>? _positionStream;
 
@@ -81,9 +79,7 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
 
     if (!serviceEnabled) {
-      throw Exception(
-        'GPS belum aktif. Aktifkan lokasi di pengaturan HP.',
-      );
+      throw Exception('GPS belum aktif. Aktifkan lokasi di pengaturan HP.');
     }
 
     LocationPermission permission = await Geolocator.checkPermission();
@@ -104,9 +100,7 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
     }
 
     return Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-      ),
+      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
     );
   }
 
@@ -152,10 +146,7 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
         _isLoading = false;
       });
 
-      _mapController.move(
-        LatLng(position.latitude, position.longitude),
-        16,
-      );
+      _mapController.move(LatLng(position.latitude, position.longitude), 16);
       _listenForLocationUpdates();
     } catch (error) {
       if (!mounted) return;
@@ -171,42 +162,41 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
   }
 
   void _listenForLocationUpdates() {
-    _positionStream = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 5,
-      ),
-    ).listen(
-      (Position position) async {
-        if (!mounted) return;
-
-        setState(() {
-          _position = position;
-          _lastUpdated = DateTime.now();
-          _errorMessage = null;
-        });
-
-        _mapController.move(
-          LatLng(position.latitude, position.longitude),
-          16,
-        );
-
-        try {
-          await ApiService.sendTrackingLocation(
-            latitude: position.latitude,
-            longitude: position.longitude,
-            accuracy: position.accuracy,
-            speed: position.speed,
-          );
-        } catch (error) {
+    _positionStream =
+        Geolocator.getPositionStream(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            distanceFilter: 5,
+          ),
+        ).listen((Position position) async {
           if (!mounted) return;
 
           setState(() {
-            _errorMessage = 'Gagal mengirim lokasi: $error';
+            _position = position;
+            _lastUpdated = DateTime.now();
+            _errorMessage = null;
           });
-        }
-      },
-    );
+
+          _mapController.move(
+            LatLng(position.latitude, position.longitude),
+            16,
+          );
+
+          try {
+            await ApiService.sendTrackingLocation(
+              latitude: position.latitude,
+              longitude: position.longitude,
+              accuracy: position.accuracy,
+              speed: position.speed,
+            );
+          } catch (error) {
+            if (!mounted) return;
+
+            setState(() {
+              _errorMessage = 'Gagal mengirim lokasi: $error';
+            });
+          }
+        });
   }
 
   Future<void> _startTracking() async {
@@ -250,9 +240,7 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
       if (!mounted) return;
 
       setState(() {
-        _errorMessage = error
-            .toString()
-            .replaceFirst('Exception: ', '');
+        _errorMessage = error.toString().replaceFirst('Exception: ', '');
         _isTracking = false;
         _isLoading = false;
       });
@@ -326,10 +314,7 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
             children: [
               Text(
                 title,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Color(0xFF64748B),
-                ),
+                style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
               ),
               const SizedBox(height: 4),
               Text(
@@ -402,7 +387,7 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
-                      colors:  _brandGradientColors
+                      colors: _brandGradientColors,
                     ),
                     borderRadius: BorderRadius.circular(22),
                     boxShadow: const [
@@ -416,11 +401,7 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
                   child: const Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(
-                        LucideIcons.mapPin,
-                        color: Colors.white,
-                        size: 32,
-                      ),
+                      Icon(LucideIcons.mapPin, color: Colors.white, size: 32),
                       SizedBox(height: 12),
                       Text(
                         'Pantau Lokasi Anda',
@@ -451,9 +432,7 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(18),
-                    border: Border.all(
-                      color: const Color(0xFFDCE8F8),
-                    ),
+                    border: Border.all(color: const Color(0xFFDCE8F8)),
                   ),
                   child: Row(
                     children: [
@@ -470,15 +449,14 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
                       const SizedBox(width: 10),
                       Expanded(
                         child: Column(
-                          crossAxisAlignment:
-                              CrossAxisAlignment.start,
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             const Text(
                               'Status Tracking',
                               style: TextStyle(
                                 color: Color(0xFF14264D),
                                 fontWeight: FontWeight.w700,
-                                fontSize: 16
+                                fontSize: 16,
                               ),
                             ),
                             const SizedBox(height: 4),
@@ -486,8 +464,8 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
                               _isLoading
                                   ? 'Memeriksa status tugas...'
                                   : (_isTracking
-                                      ? 'GPS sedang diperbarui'
-                                      : 'Tracking belum aktif'),
+                                        ? 'GPS sedang diperbarui'
+                                        : 'Tracking belum aktif'),
                               style: const TextStyle(
                                 color: Color(0xFF64748B),
                                 fontSize: 12,
@@ -529,8 +507,7 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
                           ),
                           children: [
                             flutter_map.TileLayer(
-                              urlTemplate:
-                                  'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                               userAgentPackageName:
                                   'com.example.agent_inteligence',
                             ),
@@ -539,12 +516,30 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
                                 markers: [
                                   flutter_map.Marker(
                                     point: center,
-                                    width: 52,
-                                    height: 52,
-                                    child: const Icon(
-                                      LucideIcons.mapPin,
-                                      color: _blueDark,
-                                      size: 42,
+                                    width: 50,
+                                    height: 50,
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        gradient: const LinearGradient(
+                                          colors: _brandGradientColors,
+                                          begin: Alignment.centerLeft,
+                                          end: Alignment.centerRight,
+                                        ),
+                                        shape: BoxShape.circle,
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: const Color(0xFF1565C0)
+                                                .withValues(alpha: 0.35),
+                                            blurRadius: 15,
+                                            spreadRadius: 3,
+                                          ),
+                                        ],
+                                      ),
+                                      child: const Icon(
+                                        LucideIcons.mapPin,
+                                        color: Colors.white,
+                                        size: 28,
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -586,9 +581,7 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: const Color(0xFFDCE8F8),
-                    ),
+                    border: Border.all(color: const Color(0xFFDCE8F8)),
                     boxShadow: const [
                       BoxShadow(
                         color: Color(0x120F172A),
@@ -623,9 +616,7 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
                             child: _infoTile(
                               icon: LucideIcons.mapPin,
                               title: 'Latitude',
-                              value: _formatCoordinate(
-                                position?.latitude,
-                              ),
+                              value: _formatCoordinate(position?.latitude),
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -633,9 +624,7 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
                             child: _infoTile(
                               icon: LucideIcons.compass,
                               title: 'Longitude',
-                              value: _formatCoordinate(
-                                position?.longitude,
-                              ),
+                              value: _formatCoordinate(position?.longitude),
                             ),
                           ),
                         ],
@@ -649,8 +638,7 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
                               title: 'Akurasi',
                               value: position == null
                                   ? '--'
-                                  : position.accuracy
-                                      .toStringAsFixed(1),
+                                  : position.accuracy.toStringAsFixed(1),
                               unit: 'meter',
                             ),
                           ),
@@ -661,8 +649,7 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
                               title: 'Kecepatan',
                               value: position == null
                                   ? '--'
-                                  : (position.speed * 3.6)
-                                      .toStringAsFixed(1),
+                                  : (position.speed * 3.6).toStringAsFixed(1),
                               unit: 'km/jam',
                             ),
                           ),
@@ -680,9 +667,7 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
                     decoration: BoxDecoration(
                       color: const Color(0xFFFFF1F2),
                       borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                        color: const Color(0xFFFECACA),
-                      ),
+                      border: Border.all(color: const Color(0xFFFECACA)),
                     ),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -716,9 +701,7 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
                     style: _brandButtonStyle(),
                     onPressed: _isLoading
                         ? null
-                        : (_isTracking
-                            ? _stopTracking
-                            : _startTracking),
+                        : (_isTracking ? _stopTracking : _startTracking),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
@@ -733,9 +716,7 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
                           )
                         else
                           Icon(
-                            _isTracking
-                                ? LucideIcons.square
-                                : LucideIcons.play,
+                            _isTracking ? LucideIcons.square : LucideIcons.play,
                             size: 19,
                           ),
                         const SizedBox(width: 10),
@@ -743,8 +724,8 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
                           _isLoading
                               ? 'Memproses...'
                               : (_isTracking
-                                  ? 'Selesai Bertugas'
-                                  : 'Mulai Bertugas'),
+                                    ? 'Selesai Bertugas'
+                                    : 'Mulai Bertugas'),
                         ),
                       ],
                     ),
