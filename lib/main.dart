@@ -7,6 +7,7 @@ import 'package:flutter_svg/svg.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
+import 'pages/agent_monitoring.dart';
 import 'services/api_service.dart';
 
 // import 'package:lottie/lottie.dart';
@@ -228,6 +229,7 @@ class BusinessIntelligenceApp extends StatelessWidget {
         '/home': (context) => const HomePage(),
         '/maps': (context) => const MapsPage(),
         '/agent-tracking': (context) => const AgentTrackingPage(),
+        '/agent-monitoring': (context) => const AgentMonitoringPage(),
       },
     );
   }
@@ -731,6 +733,10 @@ class _HomePageState extends State<HomePage> {
     final displayName = nama == null || nama.isEmpty ? 'Admin Cabang' : nama;
     final kodeKantor =
         (user['KANTOR'] ?? user['kantor'])?.toString().trim() ?? '-';
+    final levelUser = (user['LEVEL_USER'] ?? user['level_user'] ?? '')
+        .toString()
+        .trim()
+        .toUpperCase();
 
     // const cabangList = [
     //   Cabang(
@@ -961,6 +967,31 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
             ),
+            if (levelUser == 'A')
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: Button(
+                    style: _brandButtonStyle(),
+                    onPressed: () {
+                      Navigator.pushNamed(
+                        context,
+                        '/agent-monitoring',
+                        arguments: user,
+                      );
+                    },
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(LucideIcons.users, size: 19),
+                        SizedBox(width: 10),
+                        Text('Pantau Lokasi Agen'),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
               child: Text(

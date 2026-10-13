@@ -5,6 +5,7 @@ import 'package:flutter_map/flutter_map.dart' as flutter_map;
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
+import '../services/api_service.dart';
 
 const Color _blueDark = Color(0xFF0D47A1);
 // const Color _blueLight = Color(0xFF2196F3);
@@ -64,11 +65,149 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
 
   Position? _position;
   bool _isTracking = false;
-  bool _isLoading = false;
+  bool _isLoading = true;
   String? _errorMessage;
   DateTime? _lastUpdated;
 
   static const LatLng _defaultCenter = LatLng(-6.2000, 106.8167);
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_restoreTrackingStatus());
+  }
+
+  Future<Position> _getCurrentPosition() async {
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+
+    if (!serviceEnabled) {
+      throw Exception(
+        'GPS belum aktif. Aktifkan lokasi di pengaturan HP.',
+      );
+    }
+
+    LocationPermission permission = await Geolocator.checkPermission();
+
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+
+    if (permission == LocationPermission.denied) {
+      throw Exception('Izin lokasi belum diberikan.');
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      throw Exception(
+        'Izin lokasi ditolak permanen. '
+        'Aktifkan melalui pengaturan aplikasi.',
+      );
+    }
+
+    return Geolocator.getCurrentPosition(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+      ),
+    );
+  }
+
+  Future<void> _restoreTrackingStatus() async {
+    var serverTrackingActive = false;
+
+    try {
+      final result = await ApiService.getTrackingStatus();
+      final data = result['data'];
+      if (data is! Map<String, dynamic> || data['active'] is! bool) {
+        throw Exception('Respons status tugas tidak valid.');
+      }
+
+      serverTrackingActive = data['active'] as bool;
+
+      if (!serverTrackingActive) {
+        if (!mounted) return;
+        setState(() {
+          _isTracking = false;
+          _isLoading = false;
+        });
+        return;
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _isTracking = true;
+        _errorMessage = null;
+      });
+
+      final position = await _getCurrentPosition();
+      await ApiService.sendTrackingLocation(
+        latitude: position.latitude,
+        longitude: position.longitude,
+        accuracy: position.accuracy,
+        speed: position.speed,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _position = position;
+        _lastUpdated = DateTime.now();
+        _isLoading = false;
+      });
+
+      _mapController.move(
+        LatLng(position.latitude, position.longitude),
+        16,
+      );
+      _listenForLocationUpdates();
+    } catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        _isTracking = serverTrackingActive;
+        _isLoading = false;
+        _errorMessage = serverTrackingActive
+            ? 'Tugas masih aktif, tetapi lokasi tidak dapat diperbarui: $error'
+            : error.toString().replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  void _listenForLocationUpdates() {
+    _positionStream = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 5,
+      ),
+    ).listen(
+      (Position position) async {
+        if (!mounted) return;
+
+        setState(() {
+          _position = position;
+          _lastUpdated = DateTime.now();
+          _errorMessage = null;
+        });
+
+        _mapController.move(
+          LatLng(position.latitude, position.longitude),
+          16,
+        );
+
+        try {
+          await ApiService.sendTrackingLocation(
+            latitude: position.latitude,
+            longitude: position.longitude,
+            accuracy: position.accuracy,
+            speed: position.speed,
+          );
+        } catch (error) {
+          if (!mounted) return;
+
+          setState(() {
+            _errorMessage = 'Gagal mengirim lokasi: $error';
+          });
+        }
+      },
+    );
+  }
 
   Future<void> _startTracking() async {
     if (_isLoading || _isTracking) return;
@@ -79,41 +218,17 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
     });
 
     try {
-      // Pastikan layanan lokasi aktif.
-      final serviceEnabled =
-          await Geolocator.isLocationServiceEnabled();
+      final firstPosition = await _getCurrentPosition();
 
-      if (!serviceEnabled) {
-        throw Exception(
-          'GPS belum aktif. Aktifkan lokasi di pengaturan HP.',
-        );
-      }
+      // Mulai sesi tracking di server.
+      await ApiService.startTracking();
 
-      // Periksa dan minta izin lokasi.
-      LocationPermission permission =
-          await Geolocator.checkPermission();
-
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-
-      if (permission == LocationPermission.denied) {
-        throw Exception('Izin lokasi belum diberikan.');
-      }
-
-      if (permission == LocationPermission.deniedForever) {
-        throw Exception(
-          'Izin lokasi ditolak permanen. '
-          'Aktifkan melalui pengaturan aplikasi.',
-        );
-      }
-
-      // Ambil posisi pertama sebelum memulai stream.
-      final firstPosition =
-          await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-        ),
+      // Kirim koordinat pertama ke server.
+      await ApiService.sendTrackingLocation(
+        latitude: firstPosition.latitude,
+        longitude: firstPosition.longitude,
+        accuracy: firstPosition.accuracy,
+        speed: firstPosition.speed,
       );
 
       if (!mounted) return;
@@ -130,34 +245,7 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
         16,
       );
 
-      // Dengarkan perubahan lokasi selanjutnya.
-      _positionStream = Geolocator.getPositionStream(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          distanceFilter: 5,
-        ),
-      ).listen(
-        (Position position) {
-          if (!mounted) return;
-
-          setState(() {
-            _position = position;
-            _lastUpdated = DateTime.now();
-          });
-
-          _mapController.move(
-            LatLng(position.latitude, position.longitude),
-            16,
-          );
-        },
-        onError: (Object error) {
-          if (!mounted) return;
-
-          setState(() {
-            _errorMessage = 'Gagal memperbarui lokasi: $error';
-          });
-        },
-      );
+      _listenForLocationUpdates();
     } catch (error) {
       if (!mounted) return;
 
@@ -172,8 +260,24 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
   }
 
   Future<void> _stopTracking() async {
-    await _positionStream?.cancel();
-    _positionStream = null;
+    if (_isLoading || !_isTracking) return;
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      await ApiService.stopTracking();
+      await _positionStream?.cancel();
+      _positionStream = null;
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'Gagal menghentikan tracking di server: $error';
+      });
+      return;
+    }
 
     if (!mounted) return;
 
@@ -253,7 +357,7 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
 
   @override
   void dispose() {
-    _positionStream?.cancel();
+    unawaited(_positionStream?.cancel());
     super.dispose();
   }
 
@@ -379,9 +483,11 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              _isTracking
-                                  ? 'GPS sedang diperbarui'
-                                  : 'Tracking belum aktif',
+                              _isLoading
+                                  ? 'Memeriksa status tugas...'
+                                  : (_isTracking
+                                      ? 'GPS sedang diperbarui'
+                                      : 'Tracking belum aktif'),
                               style: const TextStyle(
                                 color: Color(0xFF64748B),
                                 fontSize: 12,
@@ -391,9 +497,11 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
                         ),
                       ),
                       Text(
-                        _isTracking ? 'AKTIF' : 'NONAKTIF',
+                        _isLoading
+                            ? 'MEMERIKSA'
+                            : (_isTracking ? 'AKTIF' : 'NONAKTIF'),
                         style: TextStyle(
-                          color: _isTracking
+                          color: _isTracking && !_isLoading
                               ? const Color(0xFF15803D)
                               : const Color(0xFF64748B),
                           fontWeight: FontWeight.w800,
@@ -633,7 +741,7 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
                         const SizedBox(width: 10),
                         Text(
                           _isLoading
-                              ? 'Memeriksa GPS...'
+                              ? 'Memproses...'
                               : (_isTracking
                                   ? 'Selesai Bertugas'
                                   : 'Mulai Bertugas'),
@@ -646,8 +754,7 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
                 const SizedBox(height: 14),
 
                 const Text(
-                  'Pengujian ini hanya membaca lokasi perangkat. '
-                  'Koordinat belum dikirim atau disimpan ke server.',
+                  'Lokasi perangkat dikirim ke server selama Anda bertugas.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: Color(0xFF64748B),
