@@ -408,12 +408,27 @@ class _LoginPageState extends State<LoginPage> {
 
                         const SizedBox(height: 10),
 
-                        const Text(
-                          'Lupa Password?',
-                          textAlign: TextAlign.right,
-                          style: TextStyle(
-                            color: Color(0xFF1565C0),
-                            fontSize: 13,
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: GestureDetector(
+                            onTap: () {
+                              showToast(
+                                context: context,
+                                builder: (context, overlay) {
+                                  return const SurfaceCard(
+                                    child: Text("Fitur lupa password akan segera hadir."),
+                                  );
+                                },
+                                location: ToastLocation.topRight,
+                              );
+                            },
+                            child: const Text(
+                              'Lupa Password?',
+                              style: TextStyle(
+                                color: Color(0xFF1565C0),
+                                fontSize: 12,
+                              ),
+                            ),
                           ),
                         ),
 
@@ -449,7 +464,7 @@ class _LoginPageState extends State<LoginPage> {
                   const SizedBox(height: 16),
 
                   Text(
-                    '0 Agent Intelegence Tracker 2026',
+                    'C Agent Intelligence Tracker 2026',
                     textAlign: TextAlign.center,
                     style: theme.typography.xSmall.copyWith(
                       color: theme.colorScheme.mutedForeground,
