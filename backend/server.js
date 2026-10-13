@@ -26,7 +26,7 @@ const activeAgents = new Map();
 // Role yang boleh memantau seluruh agen.
 // Sesuaikan nilainya dengan LEVEL_USER sebenarnya di Oracle.
 const TRACKING_ADMIN_LEVELS = (
-    process.env.TRACKING_ADMIN_LEVELS || 'ADMIN,SUPERVISOR'
+    process.env.TRACKING_ADMIN_LEVELS || 'ADMIN'
 )
     .split(',')
     .map(role => role.trim().toUpperCase())
@@ -68,7 +68,7 @@ function requireTrackingAdmin(req, res, next) {
     if (!TRACKING_ADMIN_LEVELS.includes(level)) {
         return res.status(403).json({
             success: false,
-            message: 'Akses hanya untuk admin atau supervisor',
+            message: 'Akses hanya untuk admin',
         });
     }
 
