@@ -13,6 +13,10 @@ import 'services/api_service.dart';
 // import 'package:lottie/lottie.dart';
 
 const List<Color> _brandGradientColors = [Color(0xFF0D47A1), Color(0xFF1565C0)];
+const List<Color> _agentMonitoringGradientColors = [
+  Color(0xFF166534),
+  Color(0xFF22C55E),
+];
 
 const LinearGradient _pageBackgroundGradient = LinearGradient(
   begin: Alignment.topCenter,
@@ -40,6 +44,32 @@ AbstractButtonStyle _brandButtonStyle() {
           end: Alignment.centerRight,
         ),
         boxShadow: const [_softComponentShadow],
+      );
+    },
+  );
+}
+
+AbstractButtonStyle _agentMonitoringButtonStyle() {
+  return ButtonStyle.primary().copyWith(
+    decoration: (_, _, defaultDecoration) {
+      final decoration = defaultDecoration is BoxDecoration
+          ? defaultDecoration
+          : const BoxDecoration();
+      return decoration.copyWith(
+        color: null,
+        gradient: const LinearGradient(
+          colors: _agentMonitoringGradientColors,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(15),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x30166534),
+            blurRadius: 14,
+            offset: Offset(0, 6),
+          ),
+        ],
       );
     },
   );
@@ -342,7 +372,7 @@ class _LoginPageState extends State<LoginPage> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(28,38,28,10),
+                    padding: const EdgeInsets.fromLTRB(28, 38, 28, 10),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -350,7 +380,7 @@ class _LoginPageState extends State<LoginPage> {
                         SvgPicture.asset(
                           'assets/animations/Bumiputera.svg',
                           width: 80,
-                          height: 80
+                          height: 80,
                         ),
                         const SizedBox(height: 25),
 
@@ -418,7 +448,9 @@ class _LoginPageState extends State<LoginPage> {
                                 context: context,
                                 builder: (context, overlay) {
                                   return const SurfaceCard(
-                                    child: Text("Fitur lupa password akan segera hadir."),
+                                    child: Text(
+                                      "Fitur lupa password akan segera hadir.",
+                                    ),
                                   );
                                 },
                                 location: ToastLocation.topRight,
@@ -438,22 +470,21 @@ class _LoginPageState extends State<LoginPage> {
 
                         Button(
                           style: _brandButtonStyle(),
-                          onPressed:
-                            _isLoggingIn ? null : _handleLogin,
+                          onPressed: _isLoggingIn ? null : _handleLogin,
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               const Text('MASUK'),
                               const SizedBox(width: 7),
                               if (_isLoggingIn)
-                              SizedBox(
-                                width: 14,
-                                height: 14,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
+                                SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
                                 ),
-                              ),
                             ],
                           ),
                         ),
@@ -972,8 +1003,9 @@ class _HomePageState extends State<HomePage> {
                 padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
                 child: SizedBox(
                   width: double.infinity,
+                  height: 54,
                   child: Button(
-                    style: _brandButtonStyle(),
+                    style: _agentMonitoringButtonStyle(),
                     onPressed: () {
                       Navigator.pushNamed(
                         context,
@@ -982,10 +1014,11 @@ class _HomePageState extends State<HomePage> {
                       );
                     },
                     child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisAlignment: MainAxisAlignment.start,
                       children: [
-                        Icon(LucideIcons.users, size: 19),
-                        SizedBox(width: 10),
+                        SizedBox(width: 5),
+                        Icon(LucideIcons.users, size: 25),
+                        SizedBox(width: 23),
                         Text('Pantau Lokasi Agen'),
                       ],
                     ),
