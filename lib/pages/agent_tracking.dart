@@ -1,53 +1,19 @@
 import 'dart:async';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart' as flutter_map;
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:shadcn_flutter/shadcn_flutter.dart';
+import 'package:shadcn_flutter/shadcn_flutter.dart' as shadcn;
 
 import '../services/api_service.dart';
 
-const Color _blueDark = Color(0xFF0D47A1);
-// const Color _blueLight = Color(0xFF2196F3);
-const Color _pageStart = Color(0xFFF8FBFF);
-const Color _pageEnd = Color(0xFFEAF3FF);
-
-// const LinearGradient _brandGradient = LinearGradient(
-//   colors: [_blueDark, _blueLight],
-//   begin: Alignment.centerLeft,
-//   end: Alignment.centerRight,
-// );
-
-const List<Color> _brandGradientColors = [Color(0xFF0D47A1), Color(0xFF1B72D7)];
-
-const BoxShadow _softComponentShadow = BoxShadow(
-  color: Color(0x260F172A),
-  blurRadius: 14,
-  offset: Offset(0, 6),
-);
-
-AbstractButtonStyle _brandButtonStyle() {
-  return ButtonStyle.primary().copyWith(
-    decoration: (context, states, defaultDecoration) {
-      if (states.contains(WidgetState.disabled)) {
-        return defaultDecoration;
-      }
-
-      final decoration = defaultDecoration is BoxDecoration
-          ? defaultDecoration
-          : const BoxDecoration();
-      return decoration.copyWith(
-        color: null,
-        gradient: const LinearGradient(
-          colors: _brandGradientColors,
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-        ),
-        boxShadow: const [_softComponentShadow],
-      );
-    },
-  );
-}
+const _blueDark = Color(0xFF0D47A1);
+const _blue = Color(0xFF1B72D7);
+const _pageStart = Color(0xFFF8FBFF);
+const _pageEnd = Color(0xFFEAF3FF);
+const _green = Color(0xFF15803D);
+const _red = Color(0xFFDC2626);
 
 class AgentTrackingPage extends StatefulWidget {
   const AgentTrackingPage({super.key});
@@ -60,12 +26,15 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
   final flutter_map.MapController _mapController = flutter_map.MapController();
 
   StreamSubscription<Position>? _positionStream;
+  Timer? _durationTimer;
 
   Position? _position;
   bool _isTracking = false;
   bool _isLoading = true;
   String? _errorMessage;
   DateTime? _lastUpdated;
+  DateTime? _taskStartedAt;
+  Duration _taskDuration = Duration.zero;
 
   static const LatLng _defaultCenter = LatLng(-6.2000, 106.8167);
 
@@ -77,30 +46,28 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
 
   Future<Position> _getCurrentPosition() async {
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-
     if (!serviceEnabled) {
       throw Exception('GPS belum aktif. Aktifkan lokasi di pengaturan HP.');
     }
 
-    LocationPermission permission = await Geolocator.checkPermission();
-
+    var permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
     }
-
     if (permission == LocationPermission.denied) {
       throw Exception('Izin lokasi belum diberikan.');
     }
-
     if (permission == LocationPermission.deniedForever) {
       throw Exception(
-        'Izin lokasi ditolak permanen. '
-        'Aktifkan melalui pengaturan aplikasi.',
+        'Izin lokasi ditolak permanen. Aktifkan melalui pengaturan aplikasi.',
       );
     }
 
     return Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        timeLimit: Duration(seconds: 20),
+      ),
     );
   }
 
@@ -115,7 +82,6 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
       }
 
       serverTrackingActive = data['active'] as bool;
-
       if (!serverTrackingActive) {
         if (!mounted) return;
         setState(() {
@@ -130,6 +96,16 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
         _isTracking = true;
         _errorMessage = null;
       });
+
+      // If the server returns a start timestamp in the future, use it.
+      // Otherwise, duration starts when this screen restores the active session.
+      final rawStartedAt = data['startedAt'] ?? data['started_at'];
+      _taskStartedAt = rawStartedAt is String
+          ? DateTime.tryParse(rawStartedAt)?.toLocal()
+          : null;
+      if (_taskStartedAt != null) {
+        _startDurationTimer();
+      }
 
       final position = await _getCurrentPosition();
       await ApiService.sendTrackingLocation(
@@ -150,53 +126,228 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
       _listenForLocationUpdates();
     } catch (error) {
       if (!mounted) return;
-
       setState(() {
         _isTracking = serverTrackingActive;
         _isLoading = false;
         _errorMessage = serverTrackingActive
-            ? 'Tugas masih aktif, tetapi lokasi tidak dapat diperbarui: $error'
-            : error.toString().replaceFirst('Exception: ', '');
+            ? 'Tugas masih aktif, tetapi lokasi belum dapat diperbarui: ${_cleanError(error)}'
+            : _cleanError(error);
       });
     }
   }
 
+  String _cleanError(Object error) =>
+      error.toString().replaceFirst('Exception: ', '');
+
+  void _startDurationTimer() {
+    _durationTimer?.cancel();
+    void updateDuration() {
+      if (!mounted || _taskStartedAt == null) return;
+      setState(() {
+        _taskDuration = DateTime.now().difference(_taskStartedAt!);
+      });
+    }
+
+    updateDuration();
+    _durationTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => updateDuration(),
+    );
+  }
+
   void _listenForLocationUpdates() {
+    unawaited(_positionStream?.cancel());
     _positionStream =
         Geolocator.getPositionStream(
           locationSettings: const LocationSettings(
             accuracy: LocationAccuracy.high,
             distanceFilter: 5,
           ),
-        ).listen((Position position) async {
-          if (!mounted) return;
-
-          setState(() {
-            _position = position;
-            _lastUpdated = DateTime.now();
-            _errorMessage = null;
-          });
-
-          _mapController.move(
-            LatLng(position.latitude, position.longitude),
-            16,
-          );
-
-          try {
-            await ApiService.sendTrackingLocation(
-              latitude: position.latitude,
-              longitude: position.longitude,
-              accuracy: position.accuracy,
-              speed: position.speed,
-            );
-          } catch (error) {
+        ).listen(
+          (position) async {
             if (!mounted) return;
 
             setState(() {
-              _errorMessage = 'Gagal mengirim lokasi: $error';
+              _position = position;
+              _lastUpdated = DateTime.now();
+              _errorMessage = null;
             });
-          }
-        });
+
+            _mapController.move(
+              LatLng(position.latitude, position.longitude),
+              16,
+            );
+
+            try {
+              await ApiService.sendTrackingLocation(
+                latitude: position.latitude,
+                longitude: position.longitude,
+                accuracy: position.accuracy,
+                speed: position.speed,
+              );
+            } catch (error) {
+              if (!mounted) return;
+              setState(
+                () => _errorMessage =
+                    'Gagal mengirim lokasi: ${_cleanError(error)}',
+              );
+            }
+          },
+          onError: (Object error) {
+            if (!mounted) return;
+            setState(
+              () => _errorMessage =
+                  'Pembaruan GPS bermasalah: ${_cleanError(error)}',
+            );
+          },
+        );
+  }
+
+  Future<void> _confirmStartTracking(BuildContext localizedContext) async {
+    final confirmed = await _showConfirmation(
+      context: localizedContext,
+      title: 'Mulai Bertugas?',
+      message: 'Setelah dimulai, aplikasi akan mengambil dan mengirim lokasi perangkat selama sesi tugas sesuai izin lokasi yang diberikan. Pastikan GPS dan koneksi internet tersedia.',
+      confirmLabel: 'Ya, Mulai Bertugas',
+      confirmColor: _green,
+      icon: Icons.play_circle_outline_rounded,
+    );
+    if (confirmed && mounted) await _startTracking();
+  }
+
+  Future<void> _confirmStopTracking(BuildContext localizedContext) async {
+    final confirmed = await _showConfirmation(
+      context: localizedContext,
+      title: 'Selesaikan Tugas?',
+      message: 'Sesi tugas akan diakhiri dan pengiriman lokasi untuk sesi ini dihentikan. Pastikan pekerjaan lapangan sudah selesai.',
+      confirmLabel: 'Ya, Selesaikan',
+      confirmColor: _red,
+      icon: Icons.stop_circle_outlined,
+    );
+    if (confirmed && mounted) await _stopTracking();
+  }
+
+  Future<bool> _showConfirmation({
+    required BuildContext context,
+    required String title,
+    required String message,
+    required String confirmLabel,
+    required Color confirmColor,
+    required IconData icon,
+  }) async {
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => Localizations(
+        locale: const Locale('en', 'US'),
+        delegates: const [
+          DefaultMaterialLocalizations.delegate,
+          DefaultWidgetsLocalizations.delegate,
+        ],
+        child: Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 24,
+                    ),
+                    decoration: BoxDecoration(color: confirmColor),
+                    child: Column(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.15),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(icon, color: Colors.white, size: 28),
+                        ),
+                        const SizedBox(height: 14),
+                        Text(
+                          title,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    width: double.infinity,
+                    color: Colors.white,
+                    padding: const EdgeInsets.fromLTRB(24, 22, 24, 20),
+                    child: Column(
+                      children: [
+                        Text(
+                          message,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Color(0xFF64748B),
+                            fontSize: 14,
+                            height: 1.5,
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: SizedBox(
+                                height: 42,
+                                child: OutlinedButton(
+                                  style: OutlinedButton.styleFrom(
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                  ),
+                                  onPressed: () =>
+                                      Navigator.of(dialogContext).pop(false),
+                                  child: const Text('Batal'),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: SizedBox(
+                                height: 42,
+                                child: FilledButton(
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: confirmColor,
+                                    foregroundColor: Colors.white,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                  ),
+                                  onPressed: () =>
+                                      Navigator.of(dialogContext).pop(true),
+                                  child: Text(confirmLabel),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    return result ?? false;
   }
 
   Future<void> _startTracking() async {
@@ -210,10 +361,7 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
     try {
       final firstPosition = await _getCurrentPosition();
 
-      // Mulai sesi tracking di server.
       await ApiService.startTracking();
-
-      // Kirim koordinat pertama ke server.
       await ApiService.sendTrackingLocation(
         latitude: firstPosition.latitude,
         longitude: firstPosition.longitude,
@@ -222,25 +370,25 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
       );
 
       if (!mounted) return;
-
       setState(() {
         _position = firstPosition;
         _lastUpdated = DateTime.now();
+        _taskStartedAt = DateTime.now();
+        _taskDuration = Duration.zero;
         _isTracking = true;
         _isLoading = false;
       });
 
+      _startDurationTimer();
       _mapController.move(
         LatLng(firstPosition.latitude, firstPosition.longitude),
         16,
       );
-
       _listenForLocationUpdates();
     } catch (error) {
       if (!mounted) return;
-
       setState(() {
-        _errorMessage = error.toString().replaceFirst('Exception: ', '');
+        _errorMessage = _cleanError(error);
         _isTracking = false;
         _isLoading = false;
       });
@@ -249,6 +397,7 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
 
   Future<void> _stopTracking() async {
     if (_isLoading || !_isTracking) return;
+
     setState(() {
       _isLoading = true;
       _errorMessage = null;
@@ -258,35 +407,42 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
       await ApiService.stopTracking();
       await _positionStream?.cancel();
       _positionStream = null;
+      _durationTimer?.cancel();
+      _durationTimer = null;
+
+      if (!mounted) return;
+      setState(() {
+        _isTracking = false;
+        _isLoading = false;
+        _taskStartedAt = null;
+        _taskDuration = Duration.zero;
+      });
     } catch (error) {
       if (!mounted) return;
       setState(() {
         _isLoading = false;
-        _errorMessage = 'Gagal menghentikan tracking di server: $error';
+        _errorMessage =
+            'Gagal menghentikan tracking di server: ${_cleanError(error)}';
       });
-      return;
     }
-
-    if (!mounted) return;
-
-    setState(() {
-      _isTracking = false;
-      _isLoading = false;
-    });
   }
 
-  String _formatCoordinate(double? value) {
-    return value == null ? '--' : value.toStringAsFixed(6);
-  }
+  String _formatCoordinate(double? value) =>
+      value == null ? '--' : value.toStringAsFixed(6);
 
   String _formatUpdatedAt() {
     final time = _lastUpdated;
-
     if (time == null) return 'Belum tersedia';
-
     return '${time.hour.toString().padLeft(2, '0')}:'
         '${time.minute.toString().padLeft(2, '0')}:'
         '${time.second.toString().padLeft(2, '0')}';
+  }
+
+  String _formatDuration(Duration duration) {
+    final hours = duration.inHours.toString().padLeft(2, '0');
+    final minutes = (duration.inMinutes % 60).toString().padLeft(2, '0');
+    final seconds = (duration.inSeconds % 60).toString().padLeft(2, '0');
+    return '$hours:$minutes:$seconds';
   }
 
   Widget _infoTile({
@@ -340,410 +496,568 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
     );
   }
 
+  Widget _sectionCard({required Widget child}) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFDCE8F8)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x100F172A),
+            blurRadius: 14,
+            offset: Offset(0, 5),
+          ),
+        ],
+      ),
+      child: child,
+    );
+  }
+
   @override
   void dispose() {
     unawaited(_positionStream?.cancel());
+    _durationTimer?.cancel();
+    _mapController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final position = _position;
-
     final center = position == null
         ? _defaultCenter
         : LatLng(position.latitude, position.longitude);
 
-    return Scaffold(
-      headers: [
-        AppBar(
-          title: const Text('Agent Tracking'),
-          leading: [
-            IconButton(
-              variance: ButtonVariance.ghost,
-              icon: const Icon(LucideIcons.arrowLeft),
-              onPressed: () => Navigator.of(context).pop(),
-            ),
-          ],
-        ),
+    final statusColor = _isTracking ? _green : const Color(0xFF64748B);
+    final statusText = _isLoading
+        ? 'MEMPROSES'
+        : (_isTracking ? 'ON DUTY' : 'OFF DUTY');
+
+    return Localizations(
+      locale: const Locale('en', 'US'),
+      delegates: const [
+        DefaultMaterialLocalizations.delegate,
+        DefaultWidgetsLocalizations.delegate,
       ],
-      child: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [_pageStart, _pageEnd],
+      child: Builder(
+        builder: (localizedContext) => Scaffold(
+          backgroundColor: _pageStart,
+          appBar: AppBar(
+            backgroundColor: Colors.white,
+            surfaceTintColor: Colors.white,
+            elevation: 0,
+            leading: IconButton(
+              tooltip: 'Kembali',
+              onPressed: () => Navigator.of(context).maybePop(),
+              icon: const Icon(Icons.arrow_back_rounded),
+            ),
+            title: const Text(
+              'Agent Tracking',
+              style: TextStyle(
+                color: Color(0xFF14264D),
+                fontWeight: FontWeight.w800,
+              ),
+            ),
           ),
-        ),
-        child: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // HEADER
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: _brandGradientColors,
-                    ),
-                    borderRadius: BorderRadius.circular(22),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Color(0x260D47A1),
-                        blurRadius: 18,
-                        offset: Offset(0, 8),
-                      ),
-                    ],
-                  ),
-                  child: const Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(LucideIcons.mapPin, color: Colors.white, size: 32),
-                      SizedBox(height: 12),
-                      Text(
-                        'Pantau Lokasi Anda',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 21,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      SizedBox(height: 6),
-                      Text(
-                        'Halaman pengujian GPS perangkat.',
-                        style: TextStyle(
-                          color: Color(0xFFE3EEFF),
-                          fontSize: 13,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 18),
-
-                // STATUS
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: const Color(0xFFDCE8F8)),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 12,
-                        height: 12,
-                        decoration: BoxDecoration(
-                          color: _isTracking
-                              ? const Color(0xFF16A34A)
-                              : const Color(0xFF94A3B8),
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Status Tracking',
-                              style: TextStyle(
-                                color: Color(0xFF14264D),
-                                fontWeight: FontWeight.w700,
-                                fontSize: 16,
+          body: Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [_pageStart, _pageEnd],
+              ),
+            ),
+            child: SafeArea(
+              top: false,
+              child: Column(
+                children: [
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(20),
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [_blueDark, _blue],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
                               ),
+                              borderRadius: BorderRadius.circular(22),
+                              boxShadow: const [
+                                BoxShadow(
+                                  color: Color(0x260D47A1),
+                                  blurRadius: 18,
+                                  offset: Offset(0, 8),
+                                ),
+                              ],
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              _isLoading
-                                  ? 'Memeriksa status tugas...'
-                                  : (_isTracking
-                                        ? 'GPS sedang diperbarui'
-                                        : 'Tracking belum aktif'),
-                              style: const TextStyle(
-                                color: Color(0xFF64748B),
-                                fontSize: 12,
-                              ),
+                            child: const Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Icon(
+                                  Icons.my_location_rounded,
+                                  color: Colors.white,
+                                  size: 30,
+                                ),
+                                SizedBox(height: 14),
+                                Text(
+                                  'Pemantauan Tugas Lapangan',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 21,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                SizedBox(height: 7),
+                                Text(
+                                  'Aktifkan tracking ketika mulai menjalankan tugas. Pastikan izin lokasi dan koneksi perangkat tersedia.',
+                                  style: TextStyle(
+                                    color: Color(0xFFE3EEFF),
+                                    fontSize: 13,
+                                    height: 1.45,
+                                  ),
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
-                      ),
-                      Text(
-                        _isLoading
-                            ? 'MEMERIKSA'
-                            : (_isTracking ? 'AKTIF' : 'NONAKTIF'),
-                        style: TextStyle(
-                          color: _isTracking && !_isLoading
-                              ? const Color(0xFF15803D)
-                              : const Color(0xFF64748B),
-                          fontWeight: FontWeight.w800,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 18),
-
-                // MAP
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(20),
-                  child: SizedBox(
-                    height: 270,
-                    child: Stack(
-                      children: [
-                        flutter_map.FlutterMap(
-                          mapController: _mapController,
-                          options: flutter_map.MapOptions(
-                            initialCenter: _defaultCenter,
-                            initialZoom: 12,
                           ),
-                          children: [
-                            flutter_map.TileLayer(
-                              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                              userAgentPackageName:
-                                  'com.example.agent_inteligence',
-                            ),
-                            if (position != null)
-                              flutter_map.MarkerLayer(
-                                markers: [
-                                  flutter_map.Marker(
-                                    point: center,
-                                    width: 50,
-                                    height: 50,
-                                    child: Container(
+                          const SizedBox(height: 16),
+                          _sectionCard(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Container(
+                                      width: 44,
+                                      height: 44,
                                       decoration: BoxDecoration(
-                                        gradient: const LinearGradient(
-                                          colors: _brandGradientColors,
-                                          begin: Alignment.centerLeft,
-                                          end: Alignment.centerRight,
+                                        color: statusColor.withValues(
+                                          alpha: 0.10,
                                         ),
-                                        shape: BoxShape.circle,
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: const Color(0xFF1565C0)
-                                                .withValues(alpha: 0.35),
-                                            blurRadius: 15,
-                                            spreadRadius: 3,
+                                        borderRadius: BorderRadius.circular(14),
+                                      ),
+                                      child: Icon(
+                                        _isTracking
+                                            ? Icons.gps_fixed_rounded
+                                            : Icons.gps_off_rounded,
+                                        color: statusColor,
+                                        size: 23,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          const Text(
+                                            'Status tugas',
+                                            style: TextStyle(
+                                              color: Color(0xFF64748B),
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 3),
+                                          Text(
+                                            _isTracking
+                                                ? 'Sedang Bertugas'
+                                                : 'Belum Bertugas',
+                                            style: const TextStyle(
+                                              color: Color(0xFF14264D),
+                                              fontSize: 17,
+                                              fontWeight: FontWeight.w800,
+                                            ),
                                           ),
                                         ],
                                       ),
-                                      child: const Icon(
-                                        LucideIcons.mapPin,
+                                    ),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 7,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: statusColor.withValues(
+                                          alpha: 0.10,
+                                        ),
+                                        borderRadius: BorderRadius.circular(30),
+                                      ),
+                                      child: Text(
+                                        statusText,
+                                        style: TextStyle(
+                                          color: statusColor,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 16),
+                                const Divider(height: 1),
+                                const SizedBox(height: 16),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: _infoTile(
+                                        icon: Icons.timer_outlined,
+                                        title: 'Durasi tugas',
+                                        value: _isTracking
+                                            ? (_taskStartedAt == null
+                                                  ? '--:--:--'
+                                                  : _formatDuration(
+                                                      _taskDuration,
+                                                    ))
+                                            : '00:00:00',
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: _infoTile(
+                                        icon: Icons.update_rounded,
+                                        title: 'Pembaruan terakhir',
+                                        value: _formatUpdatedAt(),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(20),
+                            child: Container(
+                              height: 280,
+                              decoration: BoxDecoration(
+                                border: Border.all(
+                                  color: const Color(0xFFDCE8F8),
+                                ),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Stack(
+                                children: [
+                                  flutter_map.FlutterMap(
+                                    mapController: _mapController,
+                                    options: flutter_map.MapOptions(
+                                      initialCenter: center,
+                                      initialZoom: position == null ? 11 : 16,
+                                    ),
+                                    children: [
+                                      flutter_map.TileLayer(
+                                        urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                        userAgentPackageName:
+                                            'com.devasatrio.bi_cabang_tracker',
+                                      ),
+                                      if (position != null)
+                                        flutter_map.MarkerLayer(
+                                          markers: [
+                                            flutter_map.Marker(
+                                              point: center,
+                                              width: 50,
+                                              height: 50,
+                                              child: Container(
+                                                decoration: BoxDecoration(
+                                                  gradient:
+                                                      const LinearGradient(
+                                                        colors: [
+                                                          _blueDark,
+                                                          _blue,
+                                                        ],
+                                                        begin: Alignment
+                                                            .centerLeft,
+                                                        end: Alignment
+                                                            .centerRight,
+                                                      ),
+                                                  shape: BoxShape.circle,
+                                                  boxShadow: [
+                                                    BoxShadow(
+                                                      color: _blue.withValues(
+                                                        alpha: 0.35,
+                                                      ),
+                                                      blurRadius: 15,
+                                                      spreadRadius: 3,
+                                                    ),
+                                                  ],
+                                                ),
+                                                child: const Icon(
+                                                  shadcn.LucideIcons.mapPin,
+                                                  color: Colors.white,
+                                                  size: 28,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                    ],
+                                  ),
+                                  if (position == null)
+                                    Positioned(
+                                      left: 14,
+                                      right: 14,
+                                      bottom: 14,
+                                      child: Container(
+                                        padding: const EdgeInsets.all(12),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.96,
+                                          ),
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                        ),
+                                        child: const Text(
+                                          'Lokasi akan ditampilkan setelah GPS berhasil diperoleh.',
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(
+                                            color: Color(0xFF334155),
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  Positioned(
+                                    top: 12,
+                                    left: 12,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 7,
+                                      ),
+                                      decoration: BoxDecoration(
                                         color: Colors.white,
-                                        size: 28,
+                                        borderRadius: BorderRadius.circular(30),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            Icons.circle,
+                                            size: 8,
+                                            color: _isTracking
+                                                ? _green
+                                                : const Color(0xFF94A3B8),
+                                          ),
+                                          const SizedBox(width: 7),
+                                          Text(
+                                            _isTracking
+                                                ? 'Lokasi aktif'
+                                                : 'Pratinjau peta',
+                                            style: const TextStyle(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w700,
+                                              color: Color(0xFF334155),
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ),
                                   ),
                                 ],
                               ),
-                          ],
-                        ),
-                        if (position == null)
-                          Positioned(
-                            left: 16,
-                            right: 16,
-                            bottom: 16,
-                            child: Container(
-                              padding: const EdgeInsets.all(12),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          _sectionCard(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Informasi Lokasi',
+                                  style: TextStyle(
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFF14264D),
+                                  ),
+                                ),
+                                const SizedBox(height: 5),
+                                const Text(
+                                  'Koordinat perangkat dan kualitas sinyal GPS saat ini.',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Color(0xFF64748B),
+                                  ),
+                                ),
+                                const SizedBox(height: 20),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: _infoTile(
+                                        icon: Icons.location_on_outlined,
+                                        title: 'Latitude',
+                                        value: _formatCoordinate(
+                                          position?.latitude,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: _infoTile(
+                                        icon: Icons.explore_outlined,
+                                        title: 'Longitude',
+                                        value: _formatCoordinate(
+                                          position?.longitude,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 20),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: _infoTile(
+                                        icon: Icons.gps_fixed_rounded,
+                                        title: 'Akurasi GPS',
+                                        value: position == null
+                                            ? '--'
+                                            : position.accuracy.toStringAsFixed(
+                                                1,
+                                              ),
+                                        unit: 'meter',
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: _infoTile(
+                                        icon: Icons.speed_rounded,
+                                        title: 'Kecepatan',
+                                        value: position == null
+                                            ? '--'
+                                            : (position.speed * 3.6)
+                                                  .toStringAsFixed(1),
+                                        unit: 'km/jam',
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (_errorMessage != null) ...[
+                            const SizedBox(height: 14),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(14),
                               decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(12),
+                                color: const Color(0xFFFFF1F2),
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: const Color(0xFFFECACA),
+                                ),
                               ),
-                              child: const Text(
-                                'Aktifkan GPS untuk menampilkan posisi Anda.',
-                                textAlign: TextAlign.center,
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Icon(
+                                    Icons.error_outline_rounded,
+                                    color: _red,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      _errorMessage!,
+                                      style: const TextStyle(
+                                        color: Color(0xFF991B1B),
+                                        fontSize: 13,
+                                        height: 1.4,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          width: double.infinity,
+                          height: 54,
+                          child: FilledButton.icon(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: _isTracking ? _red : _blueDark,
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(15),
+                              ),
+                            ),
+                            onPressed: _isLoading
+                                ? null
+                                : () {
+                                    if (_isTracking) {
+                                      _confirmStopTracking(localizedContext);
+                                    } else {
+                                      _confirmStartTracking(localizedContext);
+                                    }
+                                  },
+                            icon: _isLoading
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : Icon(
+                                    _isTracking
+                                        ? Icons.stop_circle_outlined
+                                        : Icons.play_circle_outline_rounded,
+                                  ),
+                            label: Text(
+                              _isLoading
+                                  ? 'Memproses...'
+                                  : (_isTracking
+                                        ? 'Selesaikan Tugas'
+                                        : 'Mulai Bertugas'),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        const Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              Icons.privacy_tip_outlined,
+                              size: 16,
+                              color: Color(0xFF64748B),
+                            ),
+                            SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Lokasi dikirim selama sesi tugas aktif sesuai izin perangkat dan kebijakan perusahaan. Pastikan tracking dihentikan setelah tugas selesai.',
+                                textAlign: TextAlign.left,
                                 style: TextStyle(
-                                  color: Color(0xFF334155),
-                                  fontSize: 12,
+                                  color: Color(0xFF64748B),
+                                  fontSize: 11,
+                                  height: 1.5,
                                 ),
                               ),
                             ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 18),
-
-                // LOCATION INFORMATION
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: const Color(0xFFDCE8F8)),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Color(0x120F172A),
-                        blurRadius: 14,
-                        offset: Offset(0, 5),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Informasi Lokasi',
-                        style: TextStyle(
-                          color: Color(0xFF14264D),
-                          fontSize: 17,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Pembaruan terakhir: ${_formatUpdatedAt()}',
-                        style: const TextStyle(
-                          color: Color(0xFF64748B),
-                          fontSize: 12,
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _infoTile(
-                              icon: LucideIcons.mapPin,
-                              title: 'Latitude',
-                              value: _formatCoordinate(position?.latitude),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: _infoTile(
-                              icon: LucideIcons.compass,
-                              title: 'Longitude',
-                              value: _formatCoordinate(position?.longitude),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 22),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _infoTile(
-                              icon: LucideIcons.crosshair,
-                              title: 'Akurasi',
-                              value: position == null
-                                  ? '--'
-                                  : position.accuracy.toStringAsFixed(1),
-                              unit: 'meter',
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: _infoTile(
-                              icon: LucideIcons.gauge,
-                              title: 'Kecepatan',
-                              value: position == null
-                                  ? '--'
-                                  : (position.speed * 3.6).toStringAsFixed(1),
-                              unit: 'km/jam',
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-
-                if (_errorMessage != null) ...[
-                  const SizedBox(height: 14),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFFF1F2),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: const Color(0xFFFECACA)),
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Icon(
-                          LucideIcons.circleAlert,
-                          color: Color(0xFFDC2626),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            _errorMessage!,
-                            style: const TextStyle(
-                              color: Color(0xFF991B1B),
-                              fontSize: 13,
-                            ),
-                          ),
+                          ],
                         ),
                       ],
                     ),
                   ),
                 ],
-
-                const SizedBox(height: 18),
-
-                // START / STOP BUTTON
-                SizedBox(
-                  width: double.infinity,
-                  height: 54,
-                  child: Button(
-                    style: _brandButtonStyle(),
-                    onPressed: _isLoading
-                        ? null
-                        : (_isTracking ? _stopTracking : _startTracking),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        if (_isLoading)
-                          const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        else
-                          Icon(
-                            _isTracking ? LucideIcons.square : LucideIcons.play,
-                            size: 19,
-                          ),
-                        const SizedBox(width: 10),
-                        Text(
-                          _isLoading
-                              ? 'Memproses...'
-                              : (_isTracking
-                                    ? 'Selesai Bertugas'
-                                    : 'Mulai Bertugas'),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 14),
-
-                const Text(
-                  'Lokasi perangkat dikirim ke server selama Anda bertugas.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Color(0xFF64748B),
-                    fontSize: 12,
-                    height: 1.5,
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         ),
