@@ -1018,8 +1018,10 @@ class _HomePageState extends State<HomePage> {
                       children: [
                         SizedBox(width: 5),
                         Icon(LucideIcons.users, size: 25),
-                        SizedBox(width: 23),
+                        SizedBox(width: 20),
                         Text('Pantau Lokasi Agen'),
+                        Spacer(),
+                        Icon(LucideIcons.chevronRight, color: Colors.white),
                       ],
                     ),
                   ),
