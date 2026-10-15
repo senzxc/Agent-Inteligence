@@ -14,7 +14,7 @@ import 'services/api_service.dart';
 
 const List<Color> _brandGradientColors = [Color(0xFF0D47A1), Color(0xFF1565C0)];
 const List<Color> _agentMonitoringGradientColors = [
-  Color(0xFF166534),
+  Color.fromARGB(255, 14, 139, 62),
   Color(0xFF22C55E),
 ];
 
@@ -44,32 +44,6 @@ AbstractButtonStyle _brandButtonStyle() {
           end: Alignment.centerRight,
         ),
         boxShadow: const [_softComponentShadow],
-      );
-    },
-  );
-}
-
-AbstractButtonStyle _agentMonitoringButtonStyle() {
-  return ButtonStyle.primary().copyWith(
-    decoration: (_, _, defaultDecoration) {
-      final decoration = defaultDecoration is BoxDecoration
-          ? defaultDecoration
-          : const BoxDecoration();
-      return decoration.copyWith(
-        color: null,
-        gradient: const LinearGradient(
-          colors: _agentMonitoringGradientColors,
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(15),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x30166534),
-            blurRadius: 14,
-            offset: Offset(0, 6),
-          ),
-        ],
       );
     },
   );
@@ -702,6 +676,8 @@ class _HomePageState extends State<HomePage> {
   bool _hasLoadedKantor = false;
   bool _isAgentTrackingHovered = false;
   bool _isAgentTrackingPressed = false;
+  bool _isAgentMonitoringHovered = false;
+  bool _isAgentMonitoringPressed = false;
 
   @override
   void didChangeDependencies() {
@@ -943,7 +919,7 @@ class _HomePageState extends State<HomePage> {
                     duration: const Duration(milliseconds: 140),
                     child: Container(
                       width: double.infinity,
-                      padding: const EdgeInsets.all(18),
+                      padding: const EdgeInsets.all(15),
                       decoration: BoxDecoration(
                         gradient: const LinearGradient(
                           colors: _brandGradientColors,
@@ -964,7 +940,7 @@ class _HomePageState extends State<HomePage> {
                           Icon(
                             LucideIcons.mapPin,
                             color: Colors.white,
-                            size: 32,
+                            size: 24,
                           ),
                           SizedBox(width: 16),
                           Expanded(
@@ -972,19 +948,10 @@ class _HomePageState extends State<HomePage> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'Agent Tracking',
+                                  'Mulai Bertugas Agen',
                                   style: TextStyle(
                                     color: Colors.white,
                                     fontSize: 16,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                                SizedBox(height: 5),
-                                Text(
-                                  'Uji GPS dan pantau lokasi perangkat',
-                                  style: TextStyle(
-                                    color: Color(0xFFE3EEFF),
-                                    fontSize: 12,
                                   ),
                                 ),
                               ],
@@ -1001,28 +968,76 @@ class _HomePageState extends State<HomePage> {
             if (levelUser == 'A')
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-                child: SizedBox(
-                  width: double.infinity,
-                  height: 54,
-                  child: Button(
-                    style: _agentMonitoringButtonStyle(),
-                    onPressed: () {
+                child: MouseRegion(
+                  onEnter: (_) {
+                    setState(() => _isAgentMonitoringHovered = true);
+                  },
+                  onExit: (_) {
+                    setState(() => _isAgentMonitoringHovered = false);
+                  },
+                  child: GestureDetector(
+                    onTap: () {
                       Navigator.pushNamed(
                         context,
                         '/agent-monitoring',
                         arguments: user,
                       );
                     },
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.start,
-                      children: [
-                        SizedBox(width: 5),
-                        Icon(LucideIcons.users, size: 25),
-                        SizedBox(width: 20),
-                        Text('Pantau Lokasi Agen'),
-                        Spacer(),
-                        Icon(LucideIcons.chevronRight, color: Colors.white),
-                      ],
+                    onTapDown: (_) {
+                      setState(() => _isAgentMonitoringPressed = true);
+                    },
+                    onTapUp: (_) {
+                      setState(() => _isAgentMonitoringPressed = false);
+                    },
+                    onTapCancel: () {
+                      setState(() => _isAgentMonitoringPressed = false);
+                    },
+                    child: AnimatedScale(
+                      scale: _isAgentMonitoringPressed
+                          ? 0.98
+                          : _isAgentMonitoringHovered
+                          ? 1.01
+                          : 1,
+                      duration: const Duration(milliseconds: 140),
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(15),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: _agentMonitoringGradientColors,
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(20),
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0x30166534),
+                              blurRadius: _isAgentMonitoringHovered ? 20 : 14,
+                              offset: const Offset(0, 6),
+                            ),
+                          ],
+                        ),
+                        child: const Row(
+                          children: [
+                            Icon(
+                              LucideIcons.users,
+                              color: Colors.white,
+                              size: 24,
+                            ),
+                            SizedBox(width: 16),
+                            Expanded(
+                              child: Text(
+                                'Pantau Lokasi Agen',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                ),
+                              ),
+                            ),
+                            Icon(LucideIcons.chevronRight, color: Colors.white),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ),
