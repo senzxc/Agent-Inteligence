@@ -598,30 +598,72 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
                                 ),
                               ],
                             ),
-                            child: const Column(
+                            child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Icon(
-                                  Icons.my_location_rounded,
-                                  color: Colors.white,
-                                  size: 30,
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.my_location_rounded,
+                                      color: Colors.white,
+                                      size: 34,
+                                    ),
+                                    SizedBox(width: 14),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'Pelacakan Tugas',
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 21,
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                          SizedBox(height: 3),
+                                          Text(
+                                            'Agent Intelligence Tracker',
+                                            style: TextStyle(
+                                              color: Color(0xFFDCEAFF),
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w500,
+                                              letterSpacing: 0.2,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                                SizedBox(height: 14),
+                                SizedBox(height: 18),
+                                Container(
+                                  width: 44,
+                                  height: 3,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.65),
+                                    borderRadius: BorderRadius.circular(2),
+                                  ),
+                                ),
+                                SizedBox(height: 16),
                                 Text(
-                                  'Pemantauan Tugas Lapangan',
+                                  'Pantau perjalanan tugas lapangan Anda',
                                   style: TextStyle(
                                     color: Colors.white,
-                                    fontSize: 21,
-                                    fontWeight: FontWeight.w800,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w700,
+                                    height: 1.35,
                                   ),
                                 ),
                                 SizedBox(height: 7),
                                 Text(
-                                  'Aktifkan tracking ketika mulai menjalankan tugas. Pastikan izin lokasi dan koneksi perangkat tersedia.',
+                                  'Aktifkan pelacakan saat mulai bertugas agar lokasi Anda dapat dipantau oleh sistem selama kegiatan berlangsung.',
                                   style: TextStyle(
                                     color: Color(0xFFE3EEFF),
                                     fontSize: 13,
-                                    height: 1.45,
+                                    height: 1.5,
                                   ),
                                 ),
                               ],
