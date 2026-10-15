@@ -651,7 +651,7 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
                                 ),
                                 SizedBox(height: 18),
                                 Container(
-                                  width: 44,
+                                  width: 220,
                                   height: 3,
                                   decoration: BoxDecoration(
                                     color: Colors.white.withValues(alpha: 0.65),
