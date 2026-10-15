@@ -97,12 +97,16 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
         _errorMessage = null;
       });
 
-      // If the server returns a start timestamp in the future, use it.
-      // Otherwise, duration starts when this screen restores the active session.
-      final rawStartedAt = data['startedAt'] ?? data['started_at'];
+      // Timestamp mulai bertugas berada di dalam data.data dari respons API.
+      // Ambil waktu tersebut agar durasi tetap berlanjut saat halaman dibuka ulang.
+      final agentData = data['data'];
+      final rawStartedAt = agentData is Map<String, dynamic>
+          ? (agentData['startedAt'] ?? agentData['started_at'])
+          : null;
       _taskStartedAt = rawStartedAt is String
           ? DateTime.tryParse(rawStartedAt)?.toLocal()
           : null;
+
       if (_taskStartedAt != null) {
         _startDurationTimer();
       }
@@ -155,6 +159,16 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
     );
   }
 
+  void _recenterMap() {
+    final position = _position;
+    if (position == null) return;
+
+    _mapController.move(
+      LatLng(position.latitude, position.longitude),
+      16,
+    );
+  }
+
   void _listenForLocationUpdates() {
     unawaited(_positionStream?.cancel());
     _positionStream =
@@ -173,11 +187,8 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
               _errorMessage = null;
             });
 
-            _mapController.move(
-              LatLng(position.latitude, position.longitude),
-              16,
-            );
-
+            // Kamera peta tidak mengikuti setiap update GPS agar pengguna
+            // tetap bisa menggeser atau memperbesar peta dengan bebas.
             try {
               await ApiService.sendTrackingLocation(
                 latitude: position.latitude,
@@ -840,6 +851,24 @@ class _AgentTrackingPageState extends State<AgentTrackingPage> {
                                         ),
                                     ],
                                   ),
+                                  if (position != null)
+                                    Positioned(
+                                      right: 12,
+                                      bottom: 12,
+                                      child: Material(
+                                        color: Colors.white,
+                                        elevation: 4,
+                                        shape: const CircleBorder(),
+                                        child: IconButton(
+                                          tooltip: 'Kembali ke posisi saya',
+                                          onPressed: _recenterMap,
+                                          icon: const Icon(
+                                            Icons.my_location_rounded,
+                                            color: _blueDark,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
                                   if (position == null)
                                     Positioned(
                                       left: 14,
