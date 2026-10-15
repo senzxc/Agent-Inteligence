@@ -70,6 +70,48 @@ class _AgentMonitoringPageState extends State<AgentMonitoringPage>
     return _agentMarkerColors[hash % _agentMarkerColors.length];
   }
 
+  Widget _agentMarker(String name, Color color) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 44,
+          height: 44,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 2.5),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x40000000),
+                blurRadius: 5,
+                offset: Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Text(
+            _agentInitials(name),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 15,
+            ),
+          ),
+        ),
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 1),
+          ),
+        ),
+      ],
+    );
+  }
+
   List<Map<String, dynamic>> _agents = [];
   bool _loading = true;
   String? _error;
@@ -380,7 +422,6 @@ class _AgentMonitoringPageState extends State<AgentMonitoringPage>
                                   final nama = (agent['nama'] ?? 'Agen')
                                       .toString();
                                   final stambuk = agent['stambuk'];
-                                  final initial = _agentInitials(nama);
                                   final markerColor = _agentMarkerColor(
                                     stambuk,
                                   );
@@ -407,51 +448,7 @@ class _AgentMonitoringPageState extends State<AgentMonitoringPage>
                                         ),
                                       );
                                     },
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Container(
-                                          width: 44,
-                                          height: 44,
-                                          alignment: Alignment.center,
-                                          decoration: BoxDecoration(
-                                            color: markerColor,
-                                            shape: BoxShape.circle,
-                                            border: Border.all(
-                                              color: Colors.white,
-                                              width: 2.5,
-                                            ),
-                                            boxShadow: const [
-                                              BoxShadow(
-                                                color: Color(0x40000000),
-                                                blurRadius: 5,
-                                                offset: Offset(0, 2),
-                                              ),
-                                            ],
-                                          ),
-                                          child: Text(
-                                            initial,
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 15,
-                                            ),
-                                          ),
-                                        ),
-                                        Container(
-                                          width: 8,
-                                          height: 8,
-                                          decoration: BoxDecoration(
-                                            color: markerColor,
-                                            shape: BoxShape.circle,
-                                            border: Border.all(
-                                              color: Colors.white,
-                                              width: 1,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
+                                    child: _agentMarker(nama, markerColor),
                                   );
                                 },
                               ),
@@ -512,6 +509,10 @@ class _AgentMonitoringPageState extends State<AgentMonitoringPage>
                         itemBuilder: (context, index) {
                           final agent = _agents[index];
                           final point = _coordinates(agent);
+                          final nama = (agent['nama'] ?? 'Agen').toString();
+                          final markerColor = _agentMarkerColor(
+                            agent['stambuk'],
+                          );
 
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 6),
@@ -527,21 +528,7 @@ class _AgentMonitoringPageState extends State<AgentMonitoringPage>
                                     padding: const EdgeInsets.all(4),
                                     child: Row(
                                       children: [
-                                        Container(
-                                          width: 46,
-                                          height: 46,
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFFE6F0FF),
-                                            borderRadius: BorderRadius.circular(
-                                              14,
-                                            ),
-                                          ),
-                                          child: const Icon(
-                                            LucideIcons.mapPin,
-                                            color: _blue,
-                                            size: 25,
-                                          ),
-                                        ),
+                                        _agentMarker(nama, markerColor),
                                         const SizedBox(width: 12),
                                         Expanded(
                                           child: Column(
