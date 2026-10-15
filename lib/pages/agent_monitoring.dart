@@ -294,7 +294,7 @@ class _AgentMonitoringPageState extends State<AgentMonitoringPage>
             style: TextStyle(
               color: Color(0xFF14264D),
               fontSize: 22,
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w800,
               letterSpacing: -0.5,
             ),
           ),
