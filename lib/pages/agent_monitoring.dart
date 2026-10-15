@@ -1,6 +1,8 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart' show showDialog;
+import 'package:flutter/material.dart'
+    as material
+    show Icons, showDialog, Tooltip;
 import 'package:flutter_map/flutter_map.dart' as flutter_map;
 import 'package:latlong2/latlong.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
@@ -246,12 +248,27 @@ class _AgentMonitoringPageState extends State<AgentMonitoringPage>
       return Scaffold(
         headers: [
           AppBar(
-            title: const Text('Agent Monitoring'),
+            title: const Text(
+              'Agent Monitoring',
+              style: TextStyle(
+                color: Color(0xFF14264D),
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.5,
+              ),
+            ),
             leading: [
-              IconButton(
-                variance: ButtonVariance.ghost,
-                icon: const Icon(LucideIcons.arrowLeft),
-                onPressed: () => Navigator.pop(context),
+              material.Tooltip(
+                message: 'Kembali',
+                child: IconButton(
+                  variance: ButtonVariance.ghost,
+                  icon: const Icon(
+                    material.Icons.arrow_back_rounded,
+                    size: 24,
+                    color: Color(0xFF14264D),
+                  ),
+                  onPressed: () => Navigator.pop(context),
+                ),
               ),
             ],
           ),
@@ -272,12 +289,27 @@ class _AgentMonitoringPageState extends State<AgentMonitoringPage>
     return Scaffold(
       headers: [
         AppBar(
-          title: const Text('Agent Monitoring'),
+          title: const Text(
+            'Agent Monitoring',
+            style: TextStyle(
+              color: Color(0xFF14264D),
+              fontSize: 22,
+              fontWeight: FontWeight.w600,
+              letterSpacing: -0.5,
+            ),
+          ),
           leading: [
-            IconButton(
-              variance: ButtonVariance.ghost,
-              icon: const Icon(LucideIcons.arrowLeft),
-              onPressed: () => Navigator.pop(context),
+            material.Tooltip(
+              message: 'Kembali',
+              child: IconButton(
+                variance: ButtonVariance.ghost,
+                icon: const Icon(
+                  material.Icons.arrow_back_rounded,
+                  size: 24,
+                  color: Color(0xFF14264D),
+                ),
+                onPressed: () => Navigator.pop(context),
+              ),
             ),
           ],
           trailing: [
@@ -428,7 +460,7 @@ class _AgentMonitoringPageState extends State<AgentMonitoringPage>
 
                                   return GestureDetector(
                                     onTap: () {
-                                      showDialog(
+                                      material.showDialog(
                                         context: context,
                                         builder: (context) => AlertDialog(
                                           title: Text(nama),
