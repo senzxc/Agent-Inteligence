@@ -244,7 +244,7 @@ class _AgentMonitoringPageState extends State<AgentMonitoringPage>
 
     // Pemeriksaan tambahan di UI. Backend tetap wajib
     // memverifikasi hak akses admin.
-    if (level != 'A') {
+    if (level != '1') {
       return Scaffold(
         headers: [
           AppBar(
