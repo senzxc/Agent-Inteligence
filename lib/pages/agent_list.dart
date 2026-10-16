@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart' as flutter_map;
 import 'package:latlong2/latlong.dart';
@@ -28,6 +30,61 @@ const _softCardShadow = BoxShadow(
   offset: Offset(0, 6),
 );
 
+enum _AgentMenuAction {
+  details,
+  location,
+  centerAgent,
+  locationDetails,
+  placeholder,
+}
+
+class _AgentMenuItem extends StatelessWidget {
+  const _AgentMenuItem({
+    required this.icon,
+    required this.label,
+    this.trailing,
+    this.width = 150,
+  });
+
+  final IconData icon;
+  final String label;
+  final Widget? trailing;
+  final double width;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: width,
+      height: 46,
+      child: Row(
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: const Color(0xFFEAF2FF),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: const Color(0xFF1565C0), size: 18),
+          ),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: Color(0xFF1F2937),
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          ?trailing,
+        ],
+      ),
+    );
+  }
+}
+
 class AgentListPage extends StatefulWidget {
   const AgentListPage({super.key});
 
@@ -45,12 +102,16 @@ class _AgentListPageState extends State<AgentListPage>
 
   List<Map<String, dynamic>> _agents = [];
   bool _loading = true;
+  bool _isFetchingAgents = false;
   String? _error;
+  String? _refreshError;
+  Timer? _agentRefreshTimer;
   String? _kantor;
   String? _namaKantor;
   String? _alamatKantor;
   double? _latitude;
   double? _longitude;
+  Offset? _agentMenuTapPosition;
   bool _initialized = false;
 
   @override
@@ -72,6 +133,10 @@ class _AgentListPageState extends State<AgentListPage>
 
     if (_kantor == null || _kantor!.isEmpty) return;
     _loadAgents();
+    _agentRefreshTimer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) => unawaited(_loadAgents(showLoading: false)),
+    );
   }
 
   @override
@@ -121,6 +186,543 @@ class _AgentListPageState extends State<AgentListPage>
     if (!_hasValidCoordinates) return;
     _animationStartCenter = _mapController.camera.center;
     _animationTargetCenter = LatLng(_latitude!, _longitude!);
+    _animationStartZoom = _mapController.camera.zoom;
+    _centerAnimationController.forward(from: 0);
+  }
+
+  LatLng? _agentCoordinates(Map<String, dynamic> agent) {
+    final latitude = _parseCoordinate(agent['latitude'] ?? agent['LATITUDE']);
+    final longitude = _parseCoordinate(
+      agent['longitude'] ?? agent['LONGITUDE'],
+    );
+    if (latitude == null ||
+        longitude == null ||
+        latitude < -90 ||
+        latitude > 90 ||
+        longitude < -180 ||
+        longitude > 180) {
+      return null;
+    }
+    return LatLng(latitude, longitude);
+  }
+
+  List<flutter_map.Marker> _agentMarkers() {
+    return _agents
+        .map((agent) {
+          final location = _agentCoordinates(agent);
+          if (location == null) return null;
+
+          final name = (agent['NAMA'] ?? 'Agen').toString();
+          return flutter_map.Marker(
+            point: location,
+            width: 52,
+            height: 60,
+            child: _agentMarker(name, _agentMarkerColor(agent['STAMBUK'])),
+          );
+        })
+        .whereType<flutter_map.Marker>()
+        .toList();
+  }
+
+  Future<void> _showAgentMenu(
+    BuildContext context,
+    Map<String, dynamic> agent,
+    Offset tapPosition,
+  ) async {
+    final screenSize = MediaQuery.sizeOf(context);
+    const horizontalPadding = 8.0;
+    const menuGap = 8.0;
+    const menuMargin = 8.0;
+    final menuWidth = ((screenSize.width - horizontalPadding * 2 - menuGap) / 2)
+        .clamp(112.0, 166.0);
+    final itemWidth = menuWidth - horizontalPadding * 2;
+    const menuHeight = 156.0;
+
+    final requestedLeft = tapPosition.dx < screenSize.width / 2
+        ? tapPosition.dx
+        : tapPosition.dx - menuWidth;
+    final initialLeft = requestedLeft.clamp(
+      menuMargin,
+      screenSize.width - menuWidth - menuMargin,
+    );
+    final canOpenRight =
+        initialLeft + menuWidth + menuGap + menuWidth <=
+        screenSize.width - menuMargin;
+    final canOpenLeft = initialLeft - menuGap - menuWidth >= menuMargin;
+    final opensSubmenuRight =
+        canOpenRight ||
+        (!canOpenLeft &&
+            tapPosition.dx + menuWidth + menuGap + menuWidth <=
+                screenSize.width - menuMargin);
+    final menuGroupLeft = opensSubmenuRight
+        ? initialLeft.clamp(
+            menuMargin,
+            screenSize.width - menuWidth * 2 - menuGap - menuMargin,
+          )
+        : (initialLeft - menuWidth - menuGap).clamp(
+            menuMargin,
+            screenSize.width - menuWidth * 2 - menuGap - menuMargin,
+          );
+    final primaryLeft = opensSubmenuRight
+        ? menuGroupLeft
+        : menuGroupLeft + menuWidth + menuGap;
+    final primaryTop =
+        (tapPosition.dy < screenSize.height / 2
+                ? tapPosition.dy
+                : tapPosition.dy - menuHeight)
+            .clamp(menuMargin, screenSize.height - menuHeight - menuMargin);
+    final primaryAnchorX = primaryLeft + menuWidth / 2 < screenSize.width / 2
+        ? primaryLeft
+        : primaryLeft + menuWidth;
+    final primaryAnchorY = primaryTop + menuHeight / 2 < screenSize.height / 2
+        ? primaryTop
+        : primaryTop + menuHeight;
+
+    final action = await showMenu<_AgentMenuAction>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        primaryAnchorX,
+        primaryAnchorY,
+        screenSize.width - primaryAnchorX,
+        screenSize.height - primaryAnchorY,
+      ),
+      color: Colors.white,
+      surfaceTintColor: Colors.white,
+      elevation: 12,
+      shadowColor: const Color(0x260F172A),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      menuPadding: const EdgeInsets.symmetric(vertical: 6),
+      items: [
+        PopupMenuItem(
+          value: _AgentMenuAction.details,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: _AgentMenuItem(
+            icon: Icons.badge_outlined,
+            label: 'Detail Agen',
+            width: itemWidth,
+          ),
+        ),
+        PopupMenuItem(
+          value: _AgentMenuAction.location,
+          enabled: false,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: IconTheme(
+            data: const IconThemeData(opacity: 1),
+            child: InkWell(
+              onTap: () async {
+                await _showAgentLocationSubmenu(
+                  context: context,
+                  agent: agent,
+                  screenSize: screenSize,
+                  primaryLeft: primaryLeft,
+                  primaryTop: primaryTop,
+                  menuWidth: menuWidth,
+                  menuGap: menuGap,
+                  menuMargin: menuMargin,
+                  opensSubmenuRight: opensSubmenuRight,
+                  itemWidth: itemWidth,
+                );
+              },
+              child: _AgentMenuItem(
+                icon: Icons.location_on_outlined,
+                label: 'Lokasi Agen',
+                trailing: const Icon(
+                  Icons.chevron_right_rounded,
+                  color: Color(0xFF64748B),
+                  size: 20,
+                ),
+                width: itemWidth,
+              ),
+            ),
+          ),
+        ),
+        PopupMenuItem(
+          value: _AgentMenuAction.placeholder,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: _AgentMenuItem(
+            icon: Icons.more_horiz,
+            label: 'Placeholder',
+            width: itemWidth,
+          ),
+        ),
+      ],
+    );
+    if (!context.mounted || action == null) return;
+
+    switch (action) {
+      case _AgentMenuAction.details:
+        await _showAgentDetails(agent);
+      case _AgentMenuAction.location:
+        break;
+      case _AgentMenuAction.centerAgent:
+        _showAgentLocation(agent);
+      case _AgentMenuAction.locationDetails:
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Detail lokasi akan ditentukan nanti.')),
+        );
+      case _AgentMenuAction.placeholder:
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Aksi ini akan ditentukan nanti.')),
+        );
+    }
+  }
+
+  Future<void> _showAgentLocationSubmenu({
+    required BuildContext context,
+    required Map<String, dynamic> agent,
+    required Size screenSize,
+    required double primaryLeft,
+    required double primaryTop,
+    required double menuWidth,
+    required double menuGap,
+    required double menuMargin,
+    required bool opensSubmenuRight,
+    required double itemWidth,
+  }) async {
+    final submenuLeft = opensSubmenuRight
+        ? primaryLeft + menuWidth + menuGap
+        : primaryLeft - menuGap - menuWidth;
+    const submenuHeight = 108.0;
+    final submenuTop = (primaryTop + 60).clamp(
+      menuMargin,
+      screenSize.height - submenuHeight - menuMargin,
+    );
+    final submenuAnchorX = submenuLeft + menuWidth / 2 < screenSize.width / 2
+        ? submenuLeft
+        : submenuLeft + menuWidth;
+    final submenuAnchorY =
+        submenuTop + submenuHeight / 2 < screenSize.height / 2
+        ? submenuTop
+        : submenuTop + submenuHeight;
+    final action = await showMenu<_AgentMenuAction>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        submenuAnchorX,
+        submenuAnchorY,
+        screenSize.width - submenuAnchorX,
+        screenSize.height - submenuAnchorY,
+      ),
+      color: Colors.white,
+      surfaceTintColor: Colors.white,
+      elevation: 12,
+      shadowColor: const Color(0x260F172A),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      menuPadding: const EdgeInsets.symmetric(vertical: 6),
+      items: [
+        PopupMenuItem(
+          value: _AgentMenuAction.centerAgent,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: _AgentMenuItem(
+            icon: Icons.my_location_rounded,
+            label: 'Pusatkan',
+            width: itemWidth,
+          ),
+        ),
+        PopupMenuItem(
+          value: _AgentMenuAction.locationDetails,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: _AgentMenuItem(
+            icon: Icons.info_outline_rounded,
+            label: 'Detail Lokasi',
+            width: itemWidth,
+          ),
+        ),
+      ],
+    );
+    if (!context.mounted) return;
+
+    // The submenu route closes first; pop its parent menu afterward so both
+    // menus disappear together when the user taps outside or picks an action.
+    Navigator.of(context).pop();
+    if (action == null || !context.mounted) return;
+
+    switch (action) {
+      case _AgentMenuAction.centerAgent:
+        _showAgentLocation(agent);
+      case _AgentMenuAction.locationDetails:
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Detail lokasi akan ditentukan nanti.')),
+        );
+      case _AgentMenuAction.details:
+      case _AgentMenuAction.location:
+      case _AgentMenuAction.placeholder:
+        break;
+    }
+  }
+
+  Future<void> _showAgentDetails(Map<String, dynamic> agent) {
+    final name = (agent['NAMA'] ?? '-').toString();
+    final stambuk = (agent['STAMBUK'] ?? '-').toString();
+    final kantor = (agent['KANTOR'] ?? '-').toString();
+    final tracking = agent['isTracking'] == true;
+    final alamat = (agent['ALAMAT'] ?? agent['ALAMAT_USER'] ?? 'Belum tersedia')
+        .toString()
+        .trim();
+    final email = (agent['EMAIL'] ?? 'Belum tersedia').toString().trim();
+    final statusColor = tracking
+        ? const Color(0xFF15803D)
+        : const Color(0xFF64748B);
+
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: 520,
+            maxHeight: MediaQuery.sizeOf(dialogContext).height * 0.86,
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(22, 22, 16, 22),
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [Color(0xFF0D47A1), Color(0xFF1B72D7)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 54,
+                        height: 54,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.16),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.28),
+                          ),
+                        ),
+                        child: Text(
+                          _agentInitials(name),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'PROFIL AGEN',
+                              style: TextStyle(
+                                color: Color(0xFFDCEBFF),
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 1.1,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              name,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 19,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Tutup',
+                        onPressed: () => Navigator.pop(dialogContext),
+                        icon: const Icon(Icons.close, color: Colors.white),
+                      ),
+                    ],
+                  ),
+                ),
+                Flexible(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 9,
+                          ),
+                          decoration: BoxDecoration(
+                            color: statusColor.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: statusColor.withValues(alpha: 0.2),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                tracking
+                                    ? Icons.radio_button_checked
+                                    : Icons.radio_button_off,
+                                size: 16,
+                                color: statusColor,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                tracking ? 'Sedang tracking' : 'Offline',
+                                style: TextStyle(
+                                  color: statusColor,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+                        const Text(
+                          'INFORMASI AGEN',
+                          style: TextStyle(
+                            color: Color(0xFF64748B),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 1,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        _agentDetailTile(
+                          icon: Icons.badge_outlined,
+                          label: 'Stambuk',
+                          value: stambuk,
+                        ),
+                        _agentDetailTile(
+                          icon: Icons.apartment_rounded,
+                          label: 'Kantor',
+                          value: kantor,
+                        ),
+                        _agentDetailTile(
+                          icon: Icons.location_on_outlined,
+                          label: 'Alamat',
+                          value: alamat.isEmpty ? 'Belum tersedia' : alamat,
+                        ),
+                        _agentDetailTile(
+                          icon: Icons.email_outlined,
+                          label: 'Email',
+                          value: email.isEmpty ? 'Belum tersedia' : email,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 18),
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    border: Border(top: BorderSide(color: Color(0xFFE8EEF6))),
+                  ),
+                  child: SizedBox(
+                    height: 46,
+                    child: FilledButton(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF1565C0),
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: () => Navigator.pop(dialogContext),
+                      child: const Text('Tutup'),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _agentDetailTile({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 9),
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFD),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE8EEF6)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: const Color(0xFFE7F0FF),
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: Icon(icon, color: const Color(0xFF1565C0), size: 19),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: Color(0xFF64748B),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    color: Color(0xFF14264D),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showAgentLocation(Map<String, dynamic> agent) {
+    final location = _agentCoordinates(agent);
+    if (location == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Lokasi agen belum tersedia atau belum aktif tracking.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    _animationStartCenter = _mapController.camera.center;
+    _animationTargetCenter = location;
     _animationStartZoom = _mapController.camera.zoom;
     _centerAnimationController.forward(from: 0);
   }
@@ -184,13 +786,16 @@ class _AgentListPageState extends State<AgentListPage>
     );
   }
 
-  Future<void> _loadAgents() async {
-    if (_kantor == null || _kantor!.isEmpty) return;
+  Future<void> _loadAgents({bool showLoading = true}) async {
+    if (_kantor == null || _kantor!.isEmpty || _isFetchingAgents) return;
+    _isFetchingAgents = true;
 
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    if (showLoading && mounted) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
 
     try {
       final result = await ApiService.getAgentList(kantor: _kantor);
@@ -217,19 +822,29 @@ class _AgentListPageState extends State<AgentListPage>
             .map((item) => Map<String, dynamic>.from(item))
             .toList();
         _loading = false;
+        _error = null;
+        _refreshError = null;
       });
     } catch (e) {
       if (!mounted) return;
 
       setState(() {
-        _error = e.toString().replaceFirst('Exception: ', '');
         _loading = false;
+        final message = e.toString().replaceFirst('Exception: ', '');
+        if (showLoading || _agents.isEmpty) {
+          _error = message;
+        } else {
+          _refreshError = message;
+        }
       });
+    } finally {
+      _isFetchingAgents = false;
     }
   }
 
   @override
   void dispose() {
+    _agentRefreshTimer?.cancel();
     _centerAnimationController.dispose();
     _mapController.dispose();
     super.dispose();
@@ -275,6 +890,14 @@ class _AgentListPageState extends State<AgentListPage>
             Text(
               address,
               style: const TextStyle(color: Color(0xFF64748B), fontSize: 13),
+            ),
+          ],
+          if (_refreshError != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Lokasi terakhir tetap ditampilkan; gagal memperbarui: '
+              '$_refreshError',
+              style: const TextStyle(color: Color(0xFFB91C1C), fontSize: 12),
             ),
           ],
           const SizedBox(height: 14),
@@ -327,6 +950,7 @@ class _AgentListPageState extends State<AgentListPage>
                                     ),
                                   ),
                                 ),
+                                ..._agentMarkers(),
                               ],
                             ),
                           ],
@@ -386,6 +1010,7 @@ class _AgentListPageState extends State<AgentListPage>
               tooltip: 'Muat ulang',
               icon: const Icon(Icons.refresh),
             ),
+          const SizedBox(width: 10),
         ],
       ),
       backgroundColor: _pageStart,
@@ -473,47 +1098,63 @@ class _AgentListPageState extends State<AgentListPage>
     final tracking = agent['isTracking'] == true;
     final markerColor = _agentMarkerColor(stambuk);
 
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: const [_softCardShadow],
-      ),
-      child: Card(
-        color: Colors.white,
-        elevation: 0,
-        margin: EdgeInsets.zero,
-        child: ListTile(
-          leading: SizedBox(
-            width: 44,
-            height: 48,
-            child: Center(child: _agentMarker(name, markerColor)),
-          ),
-          title: Text(
-            name,
-            style: const TextStyle(fontWeight: FontWeight.w600),
-          ),
-          subtitle: Text('Stambuk: $stambuk\nKantor: $kantor'),
-          isThreeLine: true,
-          trailing: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.circle,
-                size: 10,
-                color: tracking ? Colors.green : Colors.grey,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                tracking ? 'Tracking' : 'Offline',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: tracking
-                      ? Colors.green.shade800
-                      : Colors.grey.shade700,
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapDown: (details) => _agentMenuTapPosition = details.globalPosition,
+      onTap: () {
+        final tapPosition = _agentMenuTapPosition;
+        if (tapPosition != null) {
+          _showAgentMenu(context, agent, tapPosition);
+        }
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: const [_softCardShadow],
+        ),
+        child: Card(
+          color: Colors.white,
+          elevation: 0,
+          margin: EdgeInsets.zero,
+          child: ListTile(
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 10,
+            ),
+            minVerticalPadding: 12,
+            titleAlignment: ListTileTitleAlignment.center,
+            leading: SizedBox(
+              width: 44,
+              height: 56,
+              child: Center(child: _agentMarker(name, markerColor)),
+            ),
+            title: Text(
+              name,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            subtitle: Text('Stambuk: $stambuk\nKantor: $kantor'),
+            isThreeLine: true,
+            trailing: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.circle,
+                  size: 10,
+                  color: tracking ? Colors.green : Colors.grey,
                 ),
-              ),
-            ],
+                const SizedBox(height: 4),
+                Text(
+                  tracking ? 'Tracking' : 'Offline',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: tracking
+                        ? Colors.green.shade800
+                        : Colors.grey.shade700,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
