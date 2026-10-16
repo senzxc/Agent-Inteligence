@@ -1,4 +1,5 @@
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'pages/agent_tracking.dart';
 
@@ -7,6 +8,7 @@ import 'package:flutter_svg/svg.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
+import 'pages/agent_list.dart';
 import 'pages/agent_monitoring.dart';
 import 'services/api_service.dart';
 
@@ -115,6 +117,7 @@ Widget statusBadge(
 // ==========================================
 
 class Cabang {
+  final String kode;
   final String nama;
   final String alamat;
   final String email;
@@ -123,6 +126,7 @@ class Cabang {
   final String status;
 
   const Cabang({
+    this.kode = '',
     required this.nama,
     required this.alamat,
     required this.email,
@@ -143,6 +147,12 @@ class BusinessIntelligenceApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return ShadcnApp(
       debugShowCheckedModeBanner: false,
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [Locale('id', 'ID'), Locale('en', 'US')],
 
       // ========================================
       // SHADCN THEME
@@ -231,9 +241,9 @@ class BusinessIntelligenceApp extends StatelessWidget {
       routes: {
         '/': (context) => const LoginPage(),
         '/home': (context) => const HomePage(),
-        '/maps': (context) => const MapsPage(),
         '/agent-tracking': (context) => const AgentTrackingPage(),
         '/agent-monitoring': (context) => const AgentMonitoringPage(),
+        '/agent-list': (context) => const AgentListPage(),
       },
     );
   }
@@ -742,8 +752,19 @@ class _HomePageState extends State<HomePage> {
         (user['KANTOR'] ?? user['kantor'])?.toString().trim() ?? '-';
     final levelUser = (user['LEVEL_USER'] ?? user['level_user'] ?? '')
         .toString()
-        .trim()
-        .toUpperCase();
+        .trim();
+    final appRole =
+        (user['APP_ROLE'] ??
+                (levelUser == '1'
+                    ? 'HEAD_MARKETING'
+                    : levelUser == '2'
+                    ? 'HEAD_AGENT'
+                    : levelUser == '3'
+                    ? 'AGENT'
+                    : 'UNKNOWN'))
+            .toString()
+            .trim()
+            .toUpperCase();
 
     // const cabangList = [
     //   Cabang(
@@ -771,6 +792,7 @@ class _HomePageState extends State<HomePage> {
 
     final cabangList = _kantorList.map((kantor) {
       return Cabang(
+        kode: kantor['KODE_KANTOR']?.toString() ?? '',
         nama: kantor['NAMA_KANTOR']?.toString() ?? '-',
         alamat: kantor['ALAMAT_KANTOR']?.toString() ?? '-',
         email: kantor['EMAIL']?.toString() ?? '-',
@@ -965,7 +987,7 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
             ),
-            if (levelUser == 'A')
+            if (appRole == 'HEAD_MARKETING' || appRole == 'HEAD_AGENT')
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
                 child: MouseRegion(
@@ -1042,6 +1064,7 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ),
               ),
+
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
               child: Text(
@@ -1073,15 +1096,16 @@ class _HomePageState extends State<HomePage> {
                             },
                             child: CardButton(
                               onPressed: () {
-                                Navigator.push(
+                                Navigator.pushNamed(
                                   context,
-                                  ShadcnPageRoute<void>(
-                                    settings: RouteSettings(
-                                      name: '/maps',
-                                      arguments: cabang,
-                                    ),
-                                    builder: (context) => const MapsPage(),
-                                  ),
+                                  '/agent-list',
+                                  arguments: {
+                                    'KODE_KANTOR': cabang.kode,
+                                    'NAMA_KANTOR': cabang.nama,
+                                    'ALAMAT_KANTOR': cabang.alamat,
+                                    'LATITUDE': cabang.lat,
+                                    'LONGITUDE': cabang.lng,
+                                  },
                                 );
                               },
                               child: Row(
