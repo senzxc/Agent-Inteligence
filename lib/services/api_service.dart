@@ -144,4 +144,23 @@ class ApiService {
   static Future<Map<String, dynamic>> getAgents() {
     return _trackingRequest('GET', '/api/agent-tracking/agents');
   }
+
+  
+  // Mengambil daftar seluruh agen dari endpoint /api/agents.
+  static Future<Map<String, dynamic>> getAgentList({
+    String? kantor,
+  }) {
+    final queryParameters = <String, String>{};
+
+    if (kantor != null && kantor.trim().isNotEmpty) {
+      queryParameters['kantor'] = kantor.trim();
+    }
+
+    final query = queryParameters.isEmpty
+        ? ''
+        : '?${Uri(queryParameters: queryParameters).query}';
+
+    return _trackingRequest('GET', '/api/agents$query');
+  }
+
 }
