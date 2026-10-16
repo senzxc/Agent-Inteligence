@@ -5,32 +5,72 @@ const crypto = require('crypto');
 require('dotenv').config();
 
 const { getConnection } = require('./database');
+const oracledb = require('oracledb');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const oracledb = require('oracledb');
 
 app.use(cors());
 app.use(express.json());
 
 // ========================================
-// PENYIMPANAN SEMENTARA (MEMORI)
+// PENYIMPANAN SEMENTARA
 // ========================================
 
-// Token login sementara: token -> data user
+// Token login: token -> data user
 const activeSessions = new Map();
 
-// Agen yang sedang bertugas: STAMBUK -> data lokasi
+// Lokasi agen aktif: STAMBUK -> data lokasi
 const activeAgents = new Map();
 
-// Role yang boleh memantau seluruh agen.
-// Sesuaikan nilainya dengan LEVEL_USER sebenarnya di Oracle.
-const TRACKING_ADMIN_LEVELS = (
-    process.env.TRACKING_ADMIN_LEVELS || 'A'
-)
-    .split(',')
-    .map(role => role.trim().toUpperCase())
-    .filter(Boolean);
+// ========================================
+// ROLE / HAK AKSES
+// ========================================
+
+const ROLE_LEVELS = {
+    HEAD_MARKETING: '1',
+    HEAD_AGENT: '2',
+    AGENT: '3',
+};
+
+function resolveAppRole(levelUser) {
+    const level = String(levelUser ?? '').trim();
+
+    switch (level) {
+        case ROLE_LEVELS.HEAD_MARKETING:
+            return 'HEAD_MARKETING';
+        case ROLE_LEVELS.HEAD_AGENT:
+            return 'HEAD_AGENT';
+        case ROLE_LEVELS.AGENT:
+            return 'AGENT';
+        default:
+            return 'UNKNOWN';
+    }
+}
+
+function requireRoles(...allowedRoles) {
+    return (req, res, next) => {
+        const role = resolveAppRole(req.authUser?.LEVEL_USER);
+
+        if (!allowedRoles.includes(role)) {
+            return res.status(403).json({
+                success: false,
+                message: 'Anda tidak memiliki akses ke fitur ini',
+                appRole: role,
+            });
+        }
+
+        req.authRole = role;
+        next();
+    };
+}
+
+function requireLeadership(req, res, next) {
+    return requireRoles(
+        'HEAD_MARKETING',
+        'HEAD_AGENT'
+    )(req, res, next);
+}
 
 // ========================================
 // AUTHENTICATION
@@ -39,7 +79,10 @@ const TRACKING_ADMIN_LEVELS = (
 function authenticate(req, res, next) {
     const authorization = req.headers.authorization;
 
-    if (!authorization || !authorization.startsWith('Bearer ')) {
+    if (
+        !authorization ||
+        !authorization.startsWith('Bearer ')
+    ) {
         return res.status(401).json({
             success: false,
             message: 'Token autentikasi wajib disertakan',
@@ -57,21 +100,6 @@ function authenticate(req, res, next) {
     }
 
     req.authUser = user;
-    next();
-}
-
-function requireTrackingAdmin(req, res, next) {
-    const level = String(req.authUser.LEVEL_USER ?? '')
-        .trim()
-        .toUpperCase();
-
-    if (!TRACKING_ADMIN_LEVELS.includes(level)) {
-        return res.status(403).json({
-            success: false,
-            message: 'Akses hanya untuk admin',
-        });
-    }
-
     next();
 }
 
@@ -132,7 +160,7 @@ app.post('/api/login', async (req, res) => {
     if (!stambuk || !password) {
         return res.status(400).json({
             success: false,
-            message: 'stambuk dan password wajib diisi',
+            message: 'Stambuk dan password wajib diisi',
         });
     }
 
@@ -165,7 +193,7 @@ app.post('/api/login', async (req, res) => {
         if (result.rows.length === 0) {
             return res.status(401).json({
                 success: false,
-                message: 'stambuk atau password salah',
+                message: 'Stambuk atau password salah',
             });
         }
 
@@ -178,15 +206,29 @@ app.post('/api/login', async (req, res) => {
             });
         }
 
-        // Buat token sesi sementara.
+        const appRole = resolveAppRole(user.LEVEL_USER);
+
+        if (appRole === 'UNKNOWN') {
+            return res.status(403).json({
+                success: false,
+                message:
+                    'LEVEL_USER belum dikenali. Hubungi administrator.',
+            });
+        }
+
         const token = crypto.randomBytes(32).toString('hex');
+
+        // Simpan data user asli di sesi.
         activeSessions.set(token, user);
 
         return res.json({
             success: true,
             message: 'Login berhasil',
             token,
-            user,
+            user: {
+                ...user,
+                APP_ROLE: appRole,
+            },
         });
     } catch (error) {
         console.error('Oracle Login Error:', error);
@@ -203,7 +245,49 @@ app.post('/api/login', async (req, res) => {
 });
 
 // ========================================
+// PROFIL PENGGUNA LOGIN
+// ========================================
+
+app.get('/api/auth/me', authenticate, (req, res) => {
+    const appRole = resolveAppRole(req.authUser.LEVEL_USER);
+
+    return res.json({
+        success: true,
+        user: {
+            ...req.authUser,
+            APP_ROLE: appRole,
+        },
+        permissions: {
+            viewAllBranches: appRole === 'HEAD_MARKETING',
+            viewBranchAgents: [
+                'HEAD_MARKETING',
+                'HEAD_AGENT',
+            ].includes(appRole),
+            manageOwnTasks: appRole === 'AGENT',
+        },
+    });
+});
+
+// ========================================
+// LOGOUT
+// ========================================
+
+app.post('/api/logout', authenticate, (req, res) => {
+    const token = req.headers.authorization.slice(7);
+
+    activeSessions.delete(token);
+
+    return res.json({
+        success: true,
+        message: 'Logout berhasil',
+    });
+});
+
+// ========================================
 // DAFTAR KANTOR
+// Catatan: endpoint ini masih untuk kompatibilitas
+// dengan homepage lama. Pembatasan akses perlu
+// diselaraskan dengan navigasi Flutter berikutnya.
 // ========================================
 
 app.get('/api/kantor', async (req, res) => {
@@ -253,13 +337,104 @@ app.get('/api/kantor', async (req, res) => {
     }
 });
 
+app.get(
+    '/api/agents',
+    authenticate,
+    requireLeadership,
+    async (req, res) => {
+        let connection;
+
+        try {
+            const requestedBranch = req.query.kantor
+                ? String(req.query.kantor).trim()
+                : null;
+
+            let branch = requestedBranch;
+
+            if (req.authRole === 'HEAD_AGENT') {
+                // Kepala Agen tidak boleh memilih cabang lain.
+                branch = String(req.authUser.KANTOR ?? '').trim();
+            }
+
+            if (
+                req.authRole === 'HEAD_MARKETING' &&
+                !branch
+            ) {
+                // Kepala Pemasaran boleh melihat semua cabang.
+                branch = null;
+            }
+
+            connection = await getConnection();
+
+            const result = await connection.execute(
+                `
+                SELECT
+                    STAMBUK,
+                    NAMA,
+                    KANTOR,
+                    EMAIL,
+                    LEVEL_USER,
+                    AKTIF,
+                    JBT,
+                    WARNA,
+                    LAYAR,
+                    EXPIRED
+                FROM DATA_USER
+                WHERE TRIM(LEVEL_USER) = '3'
+                AND (
+                    :kantor IS NULL
+                      OR UPPER(TRIM(KANTOR)) =
+                         UPPER(TRIM(:kantor))
+                  )
+                ORDER BY NAMA
+                `,
+                { kantor: branch },
+                { outFormat: oracledb.OUT_FORMAT_OBJECT }
+            );
+
+            const agents = result.rows.map(agent => {
+                const tracking = activeAgents.get(
+                    String(agent.STAMBUK)
+                );
+
+                return {
+                    ...agent,
+                    APP_ROLE: 'AGENT',
+                    isTracking: Boolean(tracking),
+                    latitude: tracking?.latitude ?? null,
+                    longitude: tracking?.longitude ?? null,
+                    lastUpdated: tracking?.lastUpdated ?? null,
+                };
+            });
+
+            return res.json({
+                success: true,
+                total: agents.length,
+                data: agents,
+            });
+        } catch (error) {
+            console.error('Get Agents Error:', error);
+
+            return res.status(500).json({
+                success: false,
+                message: 'Gagal mengambil daftar agen',
+            });
+        } finally {
+            if (connection) {
+                await connection.close().catch(console.error);
+            }
+        }
+    }
+);
+
 // ========================================
-// AGENT TRACKING: START
+// TRACKING: MULAI
 // ========================================
 
 app.post(
     '/api/agent-tracking/start',
     authenticate,
+    requireRoles('AGENT'),
     (req, res) => {
         const user = req.authUser;
         const stambuk = String(user.STAMBUK);
@@ -267,12 +442,10 @@ app.post(
         if (activeAgents.has(stambuk)) {
             return res.status(409).json({
                 success: false,
-                message: 'Anda sudah memulai tugas',
+                message: 'Anda sudah memulai tracking',
                 data: activeAgents.get(stambuk),
             });
         }
-
-        const now = new Date().toISOString();
 
         const agent = {
             stambuk,
@@ -284,7 +457,7 @@ app.post(
             longitude: null,
             accuracy: null,
             speed: null,
-            startedAt: now,
+            startedAt: new Date().toISOString(),
             lastUpdated: null,
         };
 
@@ -292,19 +465,20 @@ app.post(
 
         return res.status(201).json({
             success: true,
-            message: 'Berhasil mulai bertugas',
+            message: 'Tracking berhasil dimulai',
             data: agent,
         });
     }
 );
 
 // ========================================
-// AGENT TRACKING: CURRENT USER STATUS
+// TRACKING: STATUS PENGGUNA
 // ========================================
 
 app.get(
     '/api/agent-tracking/status',
     authenticate,
+    requireRoles('AGENT'),
     (req, res) => {
         const stambuk = String(req.authUser.STAMBUK);
         const agent = activeAgents.get(stambuk) ?? null;
@@ -318,12 +492,13 @@ app.get(
 );
 
 // ========================================
-// AGENT TRACKING: UPDATE LOCATION
+// TRACKING: UPDATE LOKASI
 // ========================================
 
 app.post(
     '/api/agent-tracking/location',
     authenticate,
+    requireRoles('AGENT'),
     (req, res) => {
         const stambuk = String(req.authUser.STAMBUK);
         const agent = activeAgents.get(stambuk);
@@ -331,11 +506,16 @@ app.post(
         if (!agent) {
             return res.status(409).json({
                 success: false,
-                message: 'Mulai bertugas terlebih dahulu',
+                message: 'Mulai tracking terlebih dahulu',
             });
         }
 
-        const { latitude, longitude, accuracy, speed } = req.body;
+        const {
+            latitude,
+            longitude,
+            accuracy,
+            speed,
+        } = req.body;
 
         const lat = Number(latitude);
         const lng = Number(longitude);
@@ -360,14 +540,17 @@ app.post(
 
         agent.latitude = lat;
         agent.longitude = lng;
+
         agent.accuracy =
-            Number.isFinite(Number(accuracy)) && accuracy != null
+            accuracy != null && Number.isFinite(Number(accuracy))
                 ? Number(accuracy)
                 : null;
+
         agent.speed =
-            Number.isFinite(Number(speed)) && speed != null
+            speed != null && Number.isFinite(Number(speed))
                 ? Number(speed)
                 : null;
+
         agent.lastUpdated = new Date().toISOString();
 
         activeAgents.set(stambuk, agent);
@@ -381,12 +564,13 @@ app.post(
 );
 
 // ========================================
-// AGENT TRACKING: STOP
+// TRACKING: SELESAI
 // ========================================
 
 app.post(
     '/api/agent-tracking/stop',
     authenticate,
+    requireRoles('AGENT'),
     (req, res) => {
         const stambuk = String(req.authUser.STAMBUK);
         const agent = activeAgents.get(stambuk);
@@ -394,7 +578,7 @@ app.post(
         if (!agent) {
             return res.status(404).json({
                 success: false,
-                message: 'Tidak ada tugas aktif',
+                message: 'Tidak ada tracking aktif',
             });
         }
 
@@ -402,7 +586,7 @@ app.post(
 
         return res.json({
             success: true,
-            message: 'Berhasil selesai bertugas',
+            message: 'Tracking berhasil dihentikan',
             stambuk,
             stoppedAt: new Date().toISOString(),
         });
@@ -410,26 +594,34 @@ app.post(
 );
 
 // ========================================
-// AGENT TRACKING: LIST ACTIVE AGENTS
-// ADMIN / SUPERVISOR ONLY
+// TRACKING: DAFTAR AGEN AKTIF
+// Kepala Pemasaran: seluruh cabang
+// Kepala Agen: cabangnya sendiri
 // ========================================
 
 app.get(
     '/api/agent-tracking/agents',
     authenticate,
-    requireTrackingAdmin,
+    requireLeadership,
     (req, res) => {
         const filterKantor = req.query.kantor
             ? String(req.query.kantor).trim().toUpperCase()
             : null;
 
-        let agents = Array.from(activeAgents.values())
-            .filter(agent =>
-                agent.latitude !== null &&
-                agent.longitude !== null
-            );
+        let agents = Array.from(activeAgents.values());
 
-        if (filterKantor) {
+        if (req.authRole === 'HEAD_AGENT') {
+            const ownBranch = String(
+                req.authUser.KANTOR ?? ''
+            ).trim().toUpperCase();
+
+            agents = agents.filter(
+                agent =>
+                    String(agent.kantor ?? '')
+                        .trim()
+                        .toUpperCase() === ownBranch
+            );
+        } else if (filterKantor) {
             agents = agents.filter(
                 agent =>
                     String(agent.kantor ?? '')
@@ -437,6 +629,13 @@ app.get(
                         .toUpperCase() === filterKantor
             );
         }
+
+        // Hanya agen yang sudah mengirim koordinat.
+        agents = agents.filter(
+            agent =>
+                agent.latitude !== null &&
+                agent.longitude !== null
+        );
 
         return res.json({
             success: true,
@@ -452,8 +651,8 @@ app.get(
 
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server berjalan di port ${PORT}`);
-    console.log(
-        'Role pemantau yang dikonfigurasi:',
-        TRACKING_ADMIN_LEVELS
-    );
+    console.log('Pemetaan role LEVEL_USER:');
+    console.log('1 = Kepala Pemasaran');
+    console.log('2 = Kepala Agen / Agen Director');
+    console.log('3 = Agen');
 });
