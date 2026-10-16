@@ -372,6 +372,7 @@ app.get(
                     STAMBUK,
                     NAMA,
                     KANTOR,
+                    ALAMAT,
                     EMAIL,
                     LEVEL_USER,
                     AKTIF,
