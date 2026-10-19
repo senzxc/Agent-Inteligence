@@ -344,7 +344,7 @@ class _AgentListPageState extends State<AgentListPage>
           ),
         PopupMenuItem(
           value: _AgentMenuAction.placeholder,
-          padding: const EdgeInsets.symmetric(horizontal: 3),
+          padding: const EdgeInsets.symmetric(horizontal: 8),
           child: _AgentMenuItem(
             icon: Icons.more_horiz,
             label: 'Placeholder',
