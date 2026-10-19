@@ -1,9 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart' as flutter_map;
 import 'package:latlong2/latlong.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart' as shadcn;
+import 'package:geocoding/geocoding.dart';
 
 import '../services/api_service.dart';
 
@@ -278,6 +280,9 @@ class _AgentListPageState extends State<AgentListPage>
         ? primaryTop
         : primaryTop + menuHeight;
 
+    final isTracking = agent['isTracking'] == true ||
+    agent['isTracking']?.toString() == '1';
+
     final action = await showMenu<_AgentMenuAction>(
       context: context,
       position: RelativeRect.fromLTRB(
@@ -302,40 +307,41 @@ class _AgentListPageState extends State<AgentListPage>
             width: itemWidth,
           ),
         ),
-        PopupMenuItem(
-          value: _AgentMenuAction.location,
-          enabled: false,
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          child: IconTheme(
-            data: const IconThemeData(opacity: 1),
-            child: InkWell(
-              onTap: () async {
-                await _showAgentLocationSubmenu(
-                  context: context,
-                  agent: agent,
-                  screenSize: screenSize,
-                  primaryLeft: primaryLeft,
-                  primaryTop: primaryTop,
-                  menuWidth: menuWidth,
-                  menuGap: menuGap,
-                  menuMargin: menuMargin,
-                  opensSubmenuRight: opensSubmenuRight,
-                  itemWidth: itemWidth,
-                );
-              },
-              child: _AgentMenuItem(
-                icon: Icons.location_on_outlined,
-                label: 'Lokasi Agen',
-                trailing: const Icon(
-                  Icons.chevron_right_rounded,
-                  color: Color(0xFF64748B),
-                  size: 20,
+        if (isTracking)
+          PopupMenuItem(
+            value: _AgentMenuAction.location,
+            enabled: false,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: IconTheme(
+              data: const IconThemeData(opacity: 1),
+              child: InkWell(
+                onTap: () async {
+                  await _showAgentLocationSubmenu(
+                    context: context,
+                    agent: agent,
+                    screenSize: screenSize,
+                    primaryLeft: primaryLeft,
+                    primaryTop: primaryTop,
+                    menuWidth: menuWidth,
+                    menuGap: menuGap,
+                    menuMargin: menuMargin,
+                    opensSubmenuRight: opensSubmenuRight,
+                    itemWidth: itemWidth,
+                  );
+                },
+                child: _AgentMenuItem(
+                  icon: Icons.location_on_outlined,
+                  label: 'Lokasi Agen',
+                  trailing: const Icon(
+                    Icons.chevron_right_rounded,
+                    color: Color(0xFF64748B),
+                    size: 20,
+                  ),
+                  width: itemWidth,
                 ),
-                width: itemWidth,
               ),
             ),
           ),
-        ),
         PopupMenuItem(
           value: _AgentMenuAction.placeholder,
           padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -357,9 +363,8 @@ class _AgentListPageState extends State<AgentListPage>
       case _AgentMenuAction.centerAgent:
         _showAgentLocation(agent);
       case _AgentMenuAction.locationDetails:
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Detail lokasi akan ditentukan nanti.')),
-        );
+        await _showAgentLocationDetails(agent);
+        break;
       case _AgentMenuAction.placeholder:
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Aksi ini akan ditentukan nanti.')),
@@ -440,9 +445,7 @@ class _AgentListPageState extends State<AgentListPage>
       case _AgentMenuAction.centerAgent:
         _showAgentLocation(agent);
       case _AgentMenuAction.locationDetails:
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Detail lokasi akan ditentukan nanti.')),
-        );
+        await _showAgentLocationDetails(agent);
       case _AgentMenuAction.details:
       case _AgentMenuAction.location:
       case _AgentMenuAction.placeholder:
@@ -649,6 +652,472 @@ class _AgentListPageState extends State<AgentListPage>
           ),
         ),
       ),
+    );
+  }
+
+  Future<String> _reverseGeocode(LatLng location) async {
+    try {
+      final placemarks = await Geocoding().placemarkFromCoordinates(
+        location.latitude,
+        location.longitude,
+      );
+
+      if (placemarks.isEmpty) {
+        return 'Alamat belum dapat ditemukan';
+      }
+
+      final place = placemarks.first;
+
+      final parts =
+          [
+                place.street,
+                place.subLocality,
+                place.locality,
+                place.subAdministrativeArea,
+                place.administrativeArea,
+                place.postalCode,
+                place.country,
+              ]
+              .whereType<String>()
+              .map((value) => value.trim())
+              .where((value) => value.isNotEmpty)
+              .toList();
+
+      // Hilangkan komponen alamat yang duplikat.
+      final uniqueParts = <String>[];
+      for (final part in parts) {
+        if (!uniqueParts.any(
+          (existing) => existing.toLowerCase() == part.toLowerCase(),
+        )) {
+          uniqueParts.add(part);
+        }
+      }
+
+      if (uniqueParts.isEmpty) {
+        return 'Alamat belum dapat ditemukan';
+      }
+
+      return uniqueParts.join(', ');
+    } catch (e) {
+      debugPrint('Reverse geocoding gagal: $e');
+      return 'Alamat tidak dapat ditemukan saat ini';
+    }
+  }
+
+  String _agentLastUpdateText(Map<String, dynamic> agent) {
+    // Sesuaikan nama field jika API menggunakan nama lain.
+    final candidates = [
+      'LAST_UPDATE',
+      'last_update',
+      'UPDATED_AT',
+      'updated_at',
+      'updatedAt',
+      'WAKTU_UPDATE',
+      'TGL_UPDATE',
+      'TGL_TRACKING',
+      'timestamp',
+      'TIMESTAMP',
+    ];
+
+    Object? rawValue;
+
+    for (final key in candidates) {
+      final value = agent[key];
+
+      if (value != null && value.toString().trim().isNotEmpty) {
+        rawValue = value;
+        break;
+      }
+    }
+
+    if (rawValue == null) {
+      return 'Belum tersedia dari server';
+    }
+
+    DateTime? date;
+
+    if (rawValue is DateTime) {
+      date = rawValue;
+    } else if (rawValue is num) {
+      // Mendukung timestamp Unix dalam detik atau milidetik.
+      final value = rawValue.toInt();
+      date = DateTime.fromMillisecondsSinceEpoch(
+        value.abs() < 100000000000 ? value * 1000 : value,
+      );
+    } else {
+      date = DateTime.tryParse(rawValue.toString().trim());
+    }
+
+    if (date == null) {
+      return rawValue.toString();
+    }
+
+    date = date.toLocal();
+
+    String twoDigits(int value) => value.toString().padLeft(2, '0');
+
+    return '${twoDigits(date.day)}-${twoDigits(date.month)}-${date.year} '
+        '${twoDigits(date.hour)}:${twoDigits(date.minute)}:${twoDigits(date.second)}';
+  }
+
+  Future<void> _showAgentLocationDetails(Map<String, dynamic> agent) async {
+    final location = _agentCoordinates(agent);
+
+    if (location == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Koordinat lokasi agen belum tersedia.')),
+      );
+      return;
+    }
+
+    final isTracking = agent['isTracking'] == true;
+    final addressFuture = _reverseGeocode(location);
+    final timestamp = _agentLastUpdateText(agent);
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return Dialog(
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.white,
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 24,
+          ),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: 520,
+              maxHeight: MediaQuery.sizeOf(dialogContext).height * 0.86,
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // HEADER
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.fromLTRB(22, 20, 12, 20),
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [Color(0xFF0D47A1), Color(0xFF1B72D7)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.16),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.28),
+                            ),
+                          ),
+                          child: const Icon(
+                            Icons.location_on_rounded,
+                            color: Colors.white,
+                            size: 26,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'DETAIL LOKASI',
+                                style: TextStyle(
+                                  color: Color(0xFFDCEBFF),
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 1.1,
+                                ),
+                              ),
+                              SizedBox(height: 4),
+                              Text(
+                                'Lokasi Agen',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 19,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Tutup',
+                          onPressed: () => Navigator.pop(dialogContext),
+                          icon: const Icon(Icons.close, color: Colors.white),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // ISI DIALOG
+                  Flexible(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'ALAMAT TERDETEKSI',
+                            style: TextStyle(
+                              color: Color(0xFF64748B),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 1,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+
+                          // Alamat hasil reverse geocoding.
+                          FutureBuilder<String>(
+                            future: addressFuture,
+                            builder: (context, snapshot) {
+                              final loading =
+                                  snapshot.connectionState ==
+                                  ConnectionState.waiting;
+
+                              final address =
+                                  snapshot.data ??
+                                  'Alamat belum dapat ditemukan';
+
+                              return Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(15),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFEAF3FF),
+                                  borderRadius: BorderRadius.circular(15),
+                                  border: Border.all(
+                                    color: const Color(0xFFD5E5FA),
+                                  ),
+                                ),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Icon(
+                                      Icons.map_rounded,
+                                      color: Color(0xFF1565C0),
+                                      size: 23,
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: loading
+                                          ? const Padding(
+                                              padding: EdgeInsets.symmetric(
+                                                vertical: 4,
+                                              ),
+                                              child: Row(
+                                                children: [
+                                                  SizedBox(
+                                                    width: 17,
+                                                    height: 17,
+                                                    child:
+                                                        CircularProgressIndicator(
+                                                          strokeWidth: 2,
+                                                        ),
+                                                  ),
+                                                  SizedBox(width: 10),
+                                                  Expanded(
+                                                    child: Text(
+                                                      'Mencari alamat...',
+                                                      style: TextStyle(
+                                                        color: Color(
+                                                          0xFF475569,
+                                                        ),
+                                                        fontSize: 13,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            )
+                                          : Text(
+                                              address,
+                                              style: const TextStyle(
+                                                color: Color(0xFF14264D),
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.w700,
+                                                height: 1.5,
+                                              ),
+                                            ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+
+                          const SizedBox(height: 22),
+
+                          const Text(
+                            'INFORMASI TRACKING',
+                            style: TextStyle(
+                              color: Color(0xFF64748B),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 1,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+
+                          // Status tracking.
+                          Container(
+                            width: double.infinity,
+                            margin: const EdgeInsets.only(bottom: 9),
+                            padding: const EdgeInsets.all(13),
+                            decoration: BoxDecoration(
+                              color: isTracking
+                                  ? const Color(0xFFF0FDF4)
+                                  : const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: isTracking
+                                    ? const Color(0xFFBBF7D0)
+                                    : const Color(0xFFE2E8F0),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  isTracking
+                                      ? Icons.radio_button_checked_rounded
+                                      : Icons.radio_button_off_rounded,
+                                  color: isTracking
+                                      ? const Color(0xFF15803D)
+                                      : const Color(0xFF64748B),
+                                  size: 21,
+                                ),
+                                const SizedBox(width: 12),
+                                const Expanded(
+                                  child: Text(
+                                    'Status Agen',
+                                    style: TextStyle(
+                                      color: Color(0xFF64748B),
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                                Text(
+                                  isTracking ? 'Tracking' : 'Offline',
+                                  style: TextStyle(
+                                    color: isTracking
+                                        ? const Color(0xFF15803D)
+                                        : const Color(0xFF64748B),
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          _agentDetailTile(
+                            icon: Icons.access_time_rounded,
+                            label: 'Update Terakhir',
+                            value: timestamp,
+                          ),
+
+                          _agentDetailTile(
+                            icon: Icons.my_location_rounded,
+                            label: 'Koordinat GPS',
+                            value:
+                                '${location.latitude.toStringAsFixed(6)}, '
+                                '${location.longitude.toStringAsFixed(6)}',
+                          ),
+
+                          const SizedBox(height: 6),
+
+                          // Tombol salin alamat.
+                          SizedBox(
+                            width: double.infinity,
+                            height: 46,
+                            child: OutlinedButton.icon(
+                              onPressed: () async {
+                                final address = await addressFuture;
+
+                                if (!dialogContext.mounted) return;
+
+                                if (address.startsWith('Alamat ')) {
+                                  ScaffoldMessenger.of(
+                                    dialogContext,
+                                  ).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'Alamat belum tersedia untuk disalin.',
+                                      ),
+                                    ),
+                                  );
+                                  return;
+                                }
+
+                                await Clipboard.setData(
+                                  ClipboardData(text: address),
+                                );
+
+                                if (!dialogContext.mounted) return;
+
+                                ScaffoldMessenger.of(
+                                  dialogContext,
+                                ).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Alamat berhasil disalin.'),
+                                  ),
+                                );
+                              },
+                              icon: const Icon(Icons.copy_rounded),
+                              label: const Text('Salin Alamat'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: const Color(0xFF1565C0),
+                                side: const BorderSide(
+                                  color: Color(0xFF1565C0),
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            ),
+                          ),
+
+                          const SizedBox(height: 10),
+
+                          // Pusatkan peta ke agen.
+                          SizedBox(
+                            width: double.infinity,
+                            height: 46,
+                            child: FilledButton.icon(
+                              onPressed: () {
+                                Navigator.pop(dialogContext);
+                                _showAgentLocation(agent);
+                              },
+                              icon: const Icon(Icons.map_outlined),
+                              label: const Text('Lihat di Peta'),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFF1565C0),
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
