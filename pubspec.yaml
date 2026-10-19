@@ -30,6 +30,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
   http: ^1.6.0
   flutter_map: ^7.0.2
   flutter_svg: ^2.0.10+1
@@ -41,6 +43,7 @@ dependencies:
   shadcn_flutter: ^0.0.55
   lottie: ^3.6.1
   geolocator: ^14.1.1
+  geocoding: ^5.0.0
 
 dev_dependencies:
   flutter_test:
