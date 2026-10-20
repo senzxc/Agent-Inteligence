@@ -2,6 +2,8 @@
 const express = require('express');
 const cors = require('cors');
 const crypto = require('crypto');
+const fs = require('fs/promises');
+const path = require('path');
 require('dotenv').config();
 
 const { getConnection } = require('./database');
@@ -22,6 +24,54 @@ const activeSessions = new Map();
 
 // Lokasi agen aktif: STAMBUK -> data lokasi
 const activeAgents = new Map();
+
+// ========================================
+// PENYIMPANAN TUGAS AGEN (JSON)
+// ========================================
+
+const TASKS_DIR = path.join(__dirname, 'data');
+const TASKS_FILE = path.join(TASKS_DIR, 'tugas.json');
+
+async function readTasks() {
+    await fs.mkdir(TASKS_DIR, { recursive: true });
+
+    try {
+        const content = await fs.readFile(TASKS_FILE, 'utf8');
+        const tasks = JSON.parse(content);
+
+        if (!Array.isArray(tasks)) {
+            throw new Error('Format tugas.json harus berupa array');
+        }
+
+        return tasks;
+    } catch (error) {
+        if (error.code === 'ENOENT') {
+            await fs.writeFile(
+                TASKS_FILE,
+                '[]',
+                'utf8'
+            );
+
+            return [];
+        }
+
+        throw error;
+    }
+}
+
+async function writeTasks(tasks) {
+    await fs.mkdir(TASKS_DIR, { recursive: true });
+
+    const tempFile = `${TASKS_FILE}.tmp`;
+
+    await fs.writeFile(
+        tempFile,
+        JSON.stringify(tasks, null, 2),
+        'utf8'
+    );
+
+    await fs.rename(tempFile, TASKS_FILE);
+}
 
 // ========================================
 // ROLE / HAK AKSES
@@ -643,6 +693,244 @@ app.get(
             total: agents.length,
             data: agents,
         });
+    }
+);
+
+// ========================================
+// TUGAS AGEN: LIHAT DAFTAR TUGAS
+// ========================================
+
+app.get(
+    '/api/agents/:agentId/tasks',
+    authenticate,
+    async (req, res) => {
+        try {
+            const agentId = String(req.params.agentId).trim();
+
+            if (!agentId) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'ID agen wajib diisi',
+                });
+            }
+
+            const tasks = await readTasks();
+
+            const agentTasks = tasks
+                .filter(task => task.agentId === agentId)
+                .sort((a, b) =>
+                    b.createdAt.localeCompare(a.createdAt)
+                );
+
+            return res.json({
+                success: true,
+                total: agentTasks.length,
+                data: agentTasks,
+            });
+        } catch (error) {
+            console.error('Get Agent Tasks Error:', error);
+
+            return res.status(500).json({
+                success: false,
+                message: 'Gagal mengambil tugas agen',
+            });
+        }
+    }
+);
+
+// ========================================
+// TUGAS AGEN: TAMBAH TUGAS
+// ========================================
+
+app.post(
+    '/api/agents/:agentId/tasks',
+    authenticate,
+    async (req, res) => {
+        try {
+            const agentId = String(req.params.agentId).trim();
+
+            const judul = String(req.body.judul ?? '').trim();
+            const deskripsi = String(
+                req.body.deskripsi ?? ''
+            ).trim();
+
+            const tenggat = req.body.tenggat
+                ? String(req.body.tenggat).trim()
+                : null;
+
+            if (!agentId || !judul) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'ID agen dan judul tugas wajib diisi',
+                });
+            }
+
+            if (judul.length > 200) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Judul maksimal 200 karakter',
+                });
+            }
+
+            if (deskripsi.length > 5000) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Deskripsi maksimal 5000 karakter',
+                });
+            }
+
+            if (
+                tenggat &&
+                !/^\d{4}-\d{2}-\d{2}$/.test(tenggat)
+            ) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Format tenggat harus YYYY-MM-DD',
+                });
+            }
+
+            const tasks = await readTasks();
+            const now = new Date().toISOString();
+
+            const newTask = {
+                id: crypto.randomUUID(),
+                agentId,
+                judul,
+                deskripsi,
+                tenggat,
+                status: 'Belum dimulai',
+                createdBy: String(req.authUser.STAMBUK),
+                createdAt: now,
+                updatedAt: now,
+                completedAt: null,
+            };
+
+            tasks.push(newTask);
+
+            await writeTasks(tasks);
+
+            return res.status(201).json({
+                success: true,
+                message: 'Tugas berhasil disimpan',
+                data: newTask,
+            });
+        } catch (error) {
+            console.error('Create Agent Task Error:', error);
+
+            return res.status(500).json({
+                success: false,
+                message: 'Gagal menyimpan tugas',
+            });
+        }
+    }
+);
+
+// ========================================
+// TUGAS AGEN: UBAH STATUS
+// ========================================
+
+app.patch(
+    '/api/tasks/:taskId/status',
+    authenticate,
+    async (req, res) => {
+        try {
+            const taskId = String(req.params.taskId);
+
+            const allowedStatuses = [
+                'Belum dimulai',
+                'Berjalan',
+                'Selesai',
+            ];
+
+            const status = String(req.body.status ?? '');
+
+            if (!allowedStatuses.includes(status)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Status tugas tidak valid',
+                    allowedStatuses,
+                });
+            }
+
+            const tasks = await readTasks();
+
+            const index = tasks.findIndex(
+                task => task.id === taskId
+            );
+
+            if (index === -1) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Tugas tidak ditemukan',
+                });
+            }
+
+            tasks[index].status = status;
+            tasks[index].updatedAt = new Date().toISOString();
+
+            tasks[index].completedAt =
+                status === 'Selesai'
+                    ? tasks[index].completedAt ??
+                      new Date().toISOString()
+                    : null;
+
+            await writeTasks(tasks);
+
+            return res.json({
+                success: true,
+                message: 'Status tugas berhasil diperbarui',
+                data: tasks[index],
+            });
+        } catch (error) {
+            console.error('Update Task Status Error:', error);
+
+            return res.status(500).json({
+                success: false,
+                message: 'Gagal memperbarui status tugas',
+            });
+        }
+    }
+);
+
+// ========================================
+// TUGAS AGEN: HAPUS TUGAS
+// ========================================
+
+app.delete(
+    '/api/tasks/:taskId',
+    authenticate,
+    async (req, res) => {
+        try {
+            const taskId = String(req.params.taskId);
+            const tasks = await readTasks();
+
+            const index = tasks.findIndex(
+                task => task.id === taskId
+            );
+
+            if (index === -1) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Tugas tidak ditemukan',
+                });
+            }
+
+            tasks.splice(index, 1);
+
+            await writeTasks(tasks);
+
+            return res.json({
+                success: true,
+                message: 'Tugas berhasil dihapus',
+            });
+        } catch (error) {
+            console.error('Delete Agent Task Error:', error);
+
+            return res.status(500).json({
+                success: false,
+                message: 'Gagal menghapus tugas',
+            });
+        }
     }
 );
 
