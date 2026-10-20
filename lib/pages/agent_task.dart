@@ -1,7 +1,9 @@
 
 import 'package:flutter/material.dart';
 
-class AgentTaskPage extends StatelessWidget {
+import '../services/api_service.dart';
+
+class AgentTaskPage extends StatefulWidget {
   final Map<String, dynamic> agent;
 
   const AgentTaskPage({
@@ -9,17 +11,40 @@ class AgentTaskPage extends StatelessWidget {
     required this.agent,
   });
 
+  @override
+  State<AgentTaskPage> createState() => _AgentTaskPageState();
+}
+
+class _AgentTaskPageState extends State<AgentTaskPage> {
   static const Color _pageStart = Color(0xFFF8FBFF);
   static const Color _pageEnd = Color(0xFFEAF3FF);
   static const Color _primary = Color(0xFF1565C0);
   static const Color _textPrimary = Color(0xFF1E293B);
   static const Color _textSecondary = Color(0xFF64748B);
 
-  String _firstValue(List<String> keys, {String fallback = '-'}) {
-    for (final key in keys) {
-      final value = agent[key]?.toString().trim();
+  static const List<String> _statuses = [
+    'Belum dimulai',
+    'Berjalan',
+    'Selesai',
+  ];
 
-      if (value != null && value.isNotEmpty && value != 'null') {
+  final List<Map<String, dynamic>> _tasks = [];
+  final Set<String> _updatingTaskIds = {};
+
+  bool _isLoading = true;
+  bool _isSaving = false;
+  String? _errorMessage;
+
+  String _firstValue(
+    List<String> keys, {
+    String fallback = '-',
+  }) {
+    for (final key in keys) {
+      final value = widget.agent[key]?.toString().trim();
+
+      if (value != null &&
+          value.isNotEmpty &&
+          value != 'null') {
         return value;
       }
     }
@@ -39,6 +64,7 @@ class AgentTaskPage extends StatelessWidget {
         'STAMBUK',
         'I_AGEN',
         'nomorAgen',
+        'stambuk',
       ]);
 
   String get _agentPhone => _firstValue([
@@ -84,6 +110,683 @@ class AgentTaskPage extends StatelessWidget {
 
     return '${days[now.weekday - 1]}, '
         '${now.day} ${months[now.month - 1]} ${now.year}';
+  }
+
+  int get _totalTasks => _tasks.length;
+
+  int get _runningTasks => _tasks.where((task) {
+        return _taskStatus(task) == 'Berjalan';
+      }).length;
+
+  int get _completedTasks => _tasks.where((task) {
+        return _taskStatus(task) == 'Selesai';
+      }).length;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTasks();
+  }
+
+  // Mendukung beberapa kemungkinan format respons API.
+  List<Map<String, dynamic>> _parseTasks(
+    Map<String, dynamic> response,
+  ) {
+    dynamic rawTasks = response['tasks'];
+
+    rawTasks ??= response['data'];
+
+    if (rawTasks is Map<String, dynamic>) {
+      rawTasks = rawTasks['tasks'] ??
+          rawTasks['items'] ??
+          rawTasks['data'];
+    }
+
+    if (rawTasks is! List) {
+      return [];
+    }
+
+    return rawTasks
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+  }
+
+  String _taskStatus(Map<String, dynamic> task) {
+    final status = (
+      task['status'] ??
+      task['STATUS'] ??
+      'Belum dimulai'
+    ).toString();
+
+    if (_statuses.contains(status)) {
+      return status;
+    }
+
+    return 'Belum dimulai';
+  }
+
+  String _taskId(Map<String, dynamic> task) {
+    return (
+      task['id'] ??
+      task['taskId'] ??
+      task['task_id'] ??
+      task['idTugas'] ??
+      ''
+    ).toString();
+  }
+
+  String _taskTitle(Map<String, dynamic> task) {
+    return (
+      task['judul'] ??
+      task['title'] ??
+      'Tugas tanpa judul'
+    ).toString();
+  }
+
+  String _taskDescription(Map<String, dynamic> task) {
+    return (
+      task['deskripsi'] ??
+      task['description'] ??
+      ''
+    ).toString();
+  }
+
+  String _taskDeadline(Map<String, dynamic> task) {
+    final raw = (
+      task['tenggat'] ??
+      task['deadline'] ??
+      ''
+    ).toString();
+
+    if (raw.isEmpty) return 'Tidak ditentukan';
+
+    final date = DateTime.tryParse(raw);
+    if (date == null) return raw;
+
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
+      'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des',
+    ];
+
+    return '${date.day} ${months[date.month - 1]} ${date.year}';
+  }
+
+  Future<void> _loadTasks() async {
+    if (_agentNumber == '-') {
+      setState(() {
+        _isLoading = false;
+        _errorMessage =
+            'Nomor agen atau stambuk tidak ditemukan.';
+      });
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final result = await ApiService.getAgentTasks(_agentNumber);
+      final data = result['data'] as Map<String, dynamic>;
+      final tasks = _parseTasks(data);
+
+      if (!mounted) return;
+
+      setState(() {
+        _tasks
+          ..clear()
+          ..addAll(tasks);
+        _isLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        _isLoading = false;
+        _errorMessage = _cleanError(error);
+      });
+    }
+  }
+
+  String _cleanError(Object error) {
+    return error.toString().replaceFirst('Exception: ', '');
+  }
+
+  Future<bool> _createTask({
+    required String judul,
+    required String deskripsi,
+    required String tenggat,
+  }) async {
+    setState(() {
+      _isSaving = true;
+    });
+
+    try {
+      await ApiService.createAgentTask(
+        agentId: _agentNumber,
+        judul: judul,
+        deskripsi: deskripsi,
+        tenggat: tenggat,
+      );
+
+      if (!mounted) return false;
+
+      Navigator.of(context).pop();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Tugas berhasil ditambahkan.'),
+          backgroundColor: Color(0xFF15803D),
+        ),
+      );
+
+      await _loadTasks();
+      return true;
+    } catch (error) {
+      if (!mounted) return false;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Gagal menambahkan tugas: ${_cleanError(error)}',
+          ),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
+      return false;
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _updateStatus(
+    Map<String, dynamic> task,
+    String status,
+  ) async {
+    final id = _taskId(task);
+
+    if (id.isEmpty) {
+      _showMessage(
+        'ID tugas tidak ditemukan pada respons server.',
+        isError: true,
+      );
+      return;
+    }
+
+    if (_updatingTaskIds.contains(id)) return;
+
+    setState(() {
+      _updatingTaskIds.add(id);
+    });
+
+    try {
+      await ApiService.updateTaskStatus(
+        taskId: id,
+        status: status,
+      );
+
+      await _loadTasks();
+
+      if (!mounted) return;
+      _showMessage('Status tugas berhasil diperbarui.');
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage(
+        'Gagal mengubah status: ${_cleanError(error)}',
+        isError: true,
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _updatingTaskIds.remove(id);
+        });
+      }
+    }
+  }
+
+  Future<void> _deleteTask(
+    Map<String, dynamic> task,
+  ) async {
+    final id = _taskId(task);
+
+    if (id.isEmpty) {
+      _showMessage(
+        'ID tugas tidak ditemukan pada respons server.',
+        isError: true,
+      );
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        title: const Text('Hapus Tugas'),
+        content: Text(
+          'Apakah kamu yakin ingin menghapus '
+          '"${_taskTitle(task)}"?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(false),
+            child: const Text('Batal'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.red.shade700,
+            ),
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(true),
+            child: const Text('Hapus'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await ApiService.deleteTask(id);
+      await _loadTasks();
+
+      if (!mounted) return;
+      _showMessage('Tugas berhasil dihapus.');
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage(
+        'Gagal menghapus tugas: ${_cleanError(error)}',
+        isError: true,
+      );
+    }
+  }
+
+  void _showMessage(
+    String message, {
+    bool isError = false,
+  }) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor:
+            isError ? Colors.red.shade700 : const Color(0xFF15803D),
+      ),
+    );
+  }
+
+  Future<void> _showAddTaskDialog() async {
+    final titleController = TextEditingController();
+    final descriptionController = TextEditingController();
+
+    DateTime? deadline;
+    bool isSubmitting = false;
+    final formKey = GlobalKey<FormState>();
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            final dateLabel = deadline == null
+                ? 'Pilih tenggat tugas'
+                : 'Tenggat: '
+                    '${deadline!.day.toString().padLeft(2, '0')}-'
+                    '${deadline!.month.toString().padLeft(2, '0')}-'
+                    '${deadline!.year}';
+
+            return Dialog(
+              backgroundColor: Colors.white,
+              surfaceTintColor: Colors.white,
+              insetPadding: const EdgeInsets.symmetric(
+                horizontal: 18,
+                vertical: 24,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(24),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: 480,
+                  maxHeight: MediaQuery.sizeOf(dialogContext).height * 0.88,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.fromLTRB(22, 20, 14, 20),
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Color(0xFF0D47A1), Color(0xFF1976D2)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 46,
+                            height: 46,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.16),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.25),
+                              ),
+                            ),
+                            child: const Icon(
+                              Icons.add_task_rounded,
+                              color: Colors.white,
+                              size: 25,
+                            ),
+                          ),
+                          const SizedBox(width: 13),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'TUGAS BARU',
+                                  style: TextStyle(
+                                    color: Color(0xFFDCEBFF),
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 1.2,
+                                  ),
+                                ),
+                                SizedBox(height: 4),
+                                Text(
+                                  'Tambah Tugas',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 19,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Tutup',
+                            onPressed: isSubmitting
+                                ? null
+                                : () => Navigator.of(dialogContext).pop(),
+                            icon: const Icon(
+                              Icons.close_rounded,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Flexible(
+                      child: Form(
+                        key: formKey,
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Lengkapi informasi tugas untuk agen.',
+                                style: TextStyle(
+                                  color: _textSecondary,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              const SizedBox(height: 18),
+                              TextFormField(
+                                controller: titleController,
+                                textCapitalization:
+                                    TextCapitalization.sentences,
+                                decoration: _taskInputDecoration(
+                                  label: 'Judul tugas',
+                                  hint: 'Contoh: Kunjungan nasabah',
+                                  icon: Icons.assignment_outlined,
+                                ),
+                                validator: (value) {
+                                  if (value == null || value.trim().isEmpty) {
+                                    return 'Judul tugas wajib diisi.';
+                                  }
+                                  return null;
+                                },
+                              ),
+                              const SizedBox(height: 14),
+                              TextFormField(
+                                controller: descriptionController,
+                                textCapitalization:
+                                    TextCapitalization.sentences,
+                                minLines: 3,
+                                maxLines: 5,
+                                decoration: _taskInputDecoration(
+                                  label: 'Deskripsi',
+                                  hint: 'Jelaskan detail tugas...',
+                                  icon: Icons.notes_rounded,
+                                  alignLabelWithHint: true,
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              OutlinedButton(
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: _primary,
+                                  backgroundColor: const Color(0xFFF3F8FF),
+                                  minimumSize: const Size(double.infinity, 52),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                  ),
+                                  side: const BorderSide(
+                                    color: Color(0xFFD5E5FA),
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                ),
+                                onPressed: isSubmitting
+                                    ? null
+                                    : () async {
+                                        final selected = await showDatePicker(
+                                          context: dialogContext,
+                                          initialDate:
+                                              deadline ?? DateTime.now(),
+                                          firstDate: DateTime(2020),
+                                          lastDate: DateTime(2100),
+                                          builder: (context, child) => Theme(
+                                            data: Theme.of(context).copyWith(
+                                              colorScheme:
+                                                  Theme.of(context).colorScheme
+                                                      .copyWith(
+                                                        primary: _primary,
+                                                        surface: Colors.white,
+                                                      ),
+                                            ),
+                                            child: child!,
+                                          ),
+                                        );
+
+                                        if (selected != null &&
+                                            dialogContext.mounted) {
+                                          setDialogState(() {
+                                            deadline = selected;
+                                          });
+                                        }
+                                      },
+                                child: Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.calendar_month_outlined,
+                                      size: 20,
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        dateLabel,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                    const Icon(
+                                      Icons.chevron_right_rounded,
+                                      color: _textSecondary,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              const Text(
+                                'Tenggat bersifat opsional.',
+                                style: TextStyle(
+                                  color: _textSecondary,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 18),
+                      decoration: const BoxDecoration(
+                        color: Colors.white,
+                        border: Border(
+                          top: BorderSide(color: Color(0xFFE8EEF6)),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: isSubmitting
+                                  ? null
+                                  : () => Navigator.of(dialogContext).pop(),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: _textSecondary,
+                                minimumSize: const Size.fromHeight(48),
+                                side: const BorderSide(
+                                  color: Color(0xFFCBD5E1),
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(13),
+                                ),
+                              ),
+                              child: const Text('Batal'),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            flex: 2,
+                            child: FilledButton.icon(
+                              onPressed: isSubmitting
+                                  ? null
+                                  : () async {
+                                      if (!formKey.currentState!.validate()) {
+                                        return;
+                                      }
+
+                                      final formattedDeadline = deadline == null
+                                          ? ''
+                                          : '${deadline!.year}-'
+                                                '${deadline!.month.toString().padLeft(2, '0')}-'
+                                                '${deadline!.day.toString().padLeft(2, '0')}';
+
+                                      setDialogState(() {
+                                        isSubmitting = true;
+                                      });
+                                      final created = await _createTask(
+                                        judul: titleController.text.trim(),
+                                        deskripsi: descriptionController.text
+                                            .trim(),
+                                        tenggat: formattedDeadline,
+                                      );
+
+                                      if (!created &&
+                                          dialogContext.mounted) {
+                                        setDialogState(() {
+                                          isSubmitting = false;
+                                        });
+                                      }
+                                    },
+                              style: FilledButton.styleFrom(
+                                backgroundColor: _primary,
+                                foregroundColor: Colors.white,
+                                minimumSize: const Size.fromHeight(48),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(13),
+                                ),
+                              ),
+                              icon: isSubmitting
+                                  ? const SizedBox(
+                                      width: 17,
+                                      height: 17,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : const Icon(Icons.add_rounded),
+                              label: Text(
+                                isSubmitting ? 'Menyimpan...' : 'Simpan Tugas',
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    titleController.dispose();
+    descriptionController.dispose();
+  }
+
+  InputDecoration _taskInputDecoration({
+    required String label,
+    required String hint,
+    required IconData icon,
+    bool alignLabelWithHint = false,
+  }) {
+    return InputDecoration(
+      labelText: label,
+      hintText: hint,
+      prefixIcon: Icon(icon, color: _primary, size: 20),
+      alignLabelWithHint: alignLabelWithHint,
+      filled: true,
+      fillColor: const Color(0xFFF8FBFF),
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: 14,
+        vertical: 15,
+      ),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: Color(0xFFDCE6F2)),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: Color(0xFFDCE6F2)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: _primary, width: 1.5),
+      ),
+    );
   }
 
   @override
