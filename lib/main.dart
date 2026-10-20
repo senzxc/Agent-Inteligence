@@ -481,7 +481,7 @@ class _LoginPageState extends State<LoginPage> {
                   const SizedBox(height: 16),
 
                   Text(
-                    'C Agent Intelligence Tracker 2026',
+                    '© Agent Intelligence Tracker 2026',
                     textAlign: TextAlign.center,
                     style: theme.typography.xSmall.copyWith(
                       color: theme.colorScheme.mutedForeground,
