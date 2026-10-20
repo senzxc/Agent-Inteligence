@@ -8,6 +8,7 @@ import 'package:flutter_svg/svg.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
+import 'pages/agent_home.dart';
 import 'pages/agent_list.dart';
 import 'pages/agent_monitoring.dart';
 import 'services/api_service.dart';
@@ -790,6 +791,13 @@ class _HomePageState extends State<HomePage> {
     //   ),
     // ];
 
+    // POV AGEN BIASA
+    if (appRole == 'AGENT') {
+      return AgentHomePage(
+        user: Map<String, dynamic>.from(user),
+      );
+    }
+
     final cabangList = _kantorList.map((kantor) {
       return Cabang(
         kode: kantor['KODE_KANTOR']?.toString() ?? '',
@@ -1105,6 +1113,8 @@ class _HomePageState extends State<HomePage> {
                                     'ALAMAT_KANTOR': cabang.alamat,
                                     'LATITUDE': cabang.lat,
                                     'LONGITUDE': cabang.lng,
+                                    'APP_ROLE': appRole,
+                                    'LEVEL_USER': levelUser,
                                   },
                                 );
                               },
