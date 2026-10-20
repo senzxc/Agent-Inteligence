@@ -106,6 +106,7 @@ class _AgentListPageState extends State<AgentListPage>
   String? _kantor;
   String? _namaKantor;
   String? _alamatKantor;
+  bool _isHeadMarketing = false;
   double? _latitude;
   double? _longitude;
   Offset? _agentMenuTapPosition;
@@ -119,6 +120,12 @@ class _AgentListPageState extends State<AgentListPage>
 
     final arguments = ModalRoute.of(context)?.settings.arguments;
     if (arguments is Map) {
+      final appRole = (arguments['APP_ROLE'] ?? '')
+          .toString()
+          .trim()
+          .toUpperCase();
+      final levelUser = (arguments['LEVEL_USER'] ?? '').toString().trim();
+      _isHeadMarketing = appRole == 'HEAD_MARKETING' || levelUser == '1';
       _kantor = arguments['KODE_KANTOR']?.toString().trim();
       _namaKantor = arguments['NAMA_KANTOR']?.toString().trim();
       _alamatKantor = arguments['ALAMAT_KANTOR']?.toString().trim();
@@ -361,9 +368,12 @@ class _AgentListPageState extends State<AgentListPage>
         await _showAgentLocationDetails(agent);
         break;
       case _AgentMenuAction.tasks:
-        await Navigator.of(
-          context,
-        ).push(MaterialPageRoute(builder: (_) => AgentTaskPage(agent: agent)));
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) =>
+                AgentTaskPage(agent: agent, canManageTasks: !_isHeadMarketing),
+          ),
+        );
     }
   }
 
