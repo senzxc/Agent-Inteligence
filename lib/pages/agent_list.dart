@@ -8,6 +8,7 @@ import 'package:shadcn_flutter/shadcn_flutter.dart' as shadcn;
 import 'package:geocoding/geocoding.dart';
 
 import '../services/api_service.dart';
+import 'agent_task.dart';
 
 const _branchMapGradientColors = [Color(0xFF0D47A1), Color(0xFF1565C0)];
 const _agentMarkerColors = [
@@ -32,13 +33,7 @@ const _softCardShadow = BoxShadow(
   offset: Offset(0, 6),
 );
 
-enum _AgentMenuAction {
-  details,
-  location,
-  centerAgent,
-  locationDetails,
-  placeholder,
-}
+enum _AgentMenuAction { details, location, centerAgent, locationDetails, tasks }
 
 class _AgentMenuItem extends StatelessWidget {
   const _AgentMenuItem({
@@ -280,8 +275,8 @@ class _AgentListPageState extends State<AgentListPage>
         ? primaryTop
         : primaryTop + menuHeight;
 
-    final isTracking = agent['isTracking'] == true ||
-    agent['isTracking']?.toString() == '1';
+    final isTracking =
+        agent['isTracking'] == true || agent['isTracking']?.toString() == '1';
 
     final action = await showMenu<_AgentMenuAction>(
       context: context,
@@ -343,11 +338,11 @@ class _AgentListPageState extends State<AgentListPage>
             ),
           ),
         PopupMenuItem(
-          value: _AgentMenuAction.placeholder,
+          value: _AgentMenuAction.tasks,
           padding: const EdgeInsets.symmetric(horizontal: 8),
           child: _AgentMenuItem(
-            icon: Icons.more_horiz,
-            label: 'Placeholder',
+            icon: Icons.checklist_rounded,
+            label: 'Tugas Agen',
             width: itemWidth,
           ),
         ),
@@ -365,10 +360,10 @@ class _AgentListPageState extends State<AgentListPage>
       case _AgentMenuAction.locationDetails:
         await _showAgentLocationDetails(agent);
         break;
-      case _AgentMenuAction.placeholder:
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Aksi ini akan ditentukan nanti.')),
-        );
+      case _AgentMenuAction.tasks:
+        await Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => AgentTaskPage(agent: agent)));
     }
   }
 
@@ -448,7 +443,7 @@ class _AgentListPageState extends State<AgentListPage>
         await _showAgentLocationDetails(agent);
       case _AgentMenuAction.details:
       case _AgentMenuAction.location:
-      case _AgentMenuAction.placeholder:
+      case _AgentMenuAction.tasks:
         break;
     }
   }
