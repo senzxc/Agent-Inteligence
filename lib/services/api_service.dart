@@ -71,6 +71,20 @@ class ApiService {
           body: jsonEncode(body ?? {}),
         );
         break;
+      case 'PATCH':
+        response = await http.patch(
+          uri,
+          headers: headers,
+          body: jsonEncode(body ?? {}),
+        );
+        break;
+
+      case 'DELETE':
+        response = await http.delete(
+          uri,
+          headers: headers,
+        );
+        break;
       default:
         throw Exception('Method API tidak didukung.');
     }
@@ -162,5 +176,63 @@ class ApiService {
 
     return _trackingRequest('GET', '/api/agents$query');
   }
+
+  
+  // ========================================
+  // TUGAS AGEN
+  // ========================================
+
+  // Mengambil daftar tugas milik agen.
+  static Future<Map<String, dynamic>> getAgentTasks(
+    String agentId,
+  ) {
+    return _trackingRequest(
+      'GET',
+      '/api/agents/${Uri.encodeComponent(agentId)}/tasks',
+    );
+  }
+
+  // Membuat tugas baru untuk agen.
+  static Future<Map<String, dynamic>> createAgentTask({
+    required String agentId,
+    required String judul,
+    required String deskripsi,
+    required String tenggat,
+  }) {
+    return _trackingRequest(
+      'POST',
+      '/api/agents/${Uri.encodeComponent(agentId)}/tasks',
+      body: {
+        'judul': judul,
+        'deskripsi': deskripsi,
+        'tenggat': tenggat,
+      },
+    );
+  }
+
+  // Mengubah status tugas.
+  static Future<Map<String, dynamic>> updateTaskStatus({
+    required String taskId,
+    required String status,
+  }) {
+    return _trackingRequest(
+      'PATCH',
+      '/api/tasks/${Uri.encodeComponent(taskId)}/status',
+      body: {
+        'status': status,
+      },
+    );
+  }
+
+  // Menghapus tugas.
+  static Future<Map<String, dynamic>> deleteTask(
+    String taskId,
+  ) {
+    return _trackingRequest(
+      'DELETE',
+      '/api/tasks/${Uri.encodeComponent(taskId)}',
+    );
+  }
+
 
 }
