@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart' as material;
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
@@ -12,6 +13,7 @@ import 'pages/agent_home.dart';
 import 'pages/agent_list.dart';
 import 'pages/agent_monitoring.dart';
 import 'services/api_service.dart';
+import 'services/gps_tracking_service.dart';
 
 // import 'package:lottie/lottie.dart';
 
@@ -316,11 +318,23 @@ class _LoginPageState extends State<LoginPage> {
           data['success'] == true &&
           data['user'] is Map) {
         if (!mounted) return;
-        Navigator.pushReplacementNamed(
-          context,
-          '/home',
-          arguments: Map<String, dynamic>.from(data['user'] as Map),
-        );
+
+        try {
+          // GPS wajib aktif sebelum user masuk ke halaman utama.
+          await AgentGpsTrackingService.instance.startAfterLogin();
+
+          if (!mounted) return;
+
+          Navigator.pushReplacementNamed(
+            context,
+            '/home',
+            arguments: Map<String, dynamic>.from(data['user'] as Map),
+          );
+        } catch (error) {
+          if (!mounted) return;
+
+          _showLoginError(error.toString().replaceFirst('Exception: ', ''));
+        }
       } else {
         final message = data is Map ? data['message']?.toString() : null;
         _showLoginError(message ?? 'Stambuk atau password salah.');
@@ -754,6 +768,13 @@ class _HomePageState extends State<HomePage> {
     final levelUser = (user['LEVEL_USER'] ?? user['level_user'] ?? '')
         .toString()
         .trim();
+    final userRoleLabel = levelUser == '1'
+        ? 'Kepala Pemasaran'
+        : levelUser == '2'
+        ? 'Kepala Agen'
+        : levelUser == '3'
+        ? 'Agen'
+        : 'User';
     final appRole =
         (user['APP_ROLE'] ??
                 (levelUser == '1'
@@ -793,9 +814,7 @@ class _HomePageState extends State<HomePage> {
 
     // POV AGEN BIASA
     if (appRole == 'AGENT') {
-      return AgentHomePage(
-        user: Map<String, dynamic>.from(user),
-      );
+      return AgentHomePage(user: Map<String, dynamic>.from(user));
     }
 
     final cabangList = _kantorList.map((kantor) {
@@ -837,79 +856,169 @@ class _HomePageState extends State<HomePage> {
             Container(
               width: double.infinity,
               margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-              padding: const EdgeInsets.all(22),
+              padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
                 gradient: const LinearGradient(
-                  colors: _brandGradientColors,
+                  colors: [Color(0xFF0D47A1), Color(0xFF1565C0)],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: const [_softComponentShadow],
+                borderRadius: BorderRadius.circular(22),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x260D47A1),
+                    blurRadius: 16,
+                    offset: Offset(0, 7),
+                  ),
+                ],
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Selamat datang kembali,',
-                    style: theme.typography.small.copyWith(
-                      color: Colors.white.withValues(alpha: 0.8),
-                    ),
+                  Row(
+                    children: [
+                      Container(
+                        width: 48,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.16),
+                          borderRadius: BorderRadius.circular(15),
+                        ),
+                        child: const Icon(
+                          LucideIcons.user,
+                          color: Colors.white,
+                          size: 28,
+                        ),
+                      ),
+                      const SizedBox(width: 13),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Selamat datang,',
+                              style: theme.typography.small.copyWith(
+                                color: Colors.white.withValues(alpha: 0.8),
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              displayName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.typography.h3.copyWith(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    displayName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.typography.h3.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
 
-                  Text(
-                    'Kantor: $kodeKantor',
-                    style: theme.typography.small.copyWith(
-                      color: Colors.white.withValues(alpha: 0.8),
-                    ),
-                  ),
                   const SizedBox(height: 18),
 
+                  // INFORMASI STAMBUK
+                  Row(
+                    children: [
+                      Icon(
+                        material.Icons.badge_outlined,
+                        color: Colors.white.withValues(alpha: 0.85),
+                        size: 17,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Stambuk: ${(user['STAMBUK'] ?? user['stambuk'] ?? '-').toString()}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.typography.small.copyWith(
+                            color: Colors.white.withValues(alpha: 0.9),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 9),
+
+                  // INFORMASI KANTOR
+                  Row(
+                    children: [
+                      Icon(
+                        material.Icons.business_outlined,
+                        color: Colors.white.withValues(alpha: 0.85),
+                        size: 17,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Kantor: $kodeKantor',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.typography.small.copyWith(
+                            color: Colors.white.withValues(alpha: 0.9),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 9),
+
+                  // INFORMASI JABATAN
+                  Row(
+                    children: [
+                      Icon(
+                        material.Icons.work_outline,
+                        color: Colors.white.withValues(alpha: 0.85),
+                        size: 17,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Jabatan: $userRoleLabel',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.typography.small.copyWith(
+                            color: Colors.white.withValues(alpha: 0.9),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 18),
+
+                  // PANEL INFORMASI
                   Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 12,
                       vertical: 10,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.14),
+                      color: Colors.white.withValues(alpha: 0.13),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.18),
+                        color: Colors.white.withValues(alpha: 0.2),
                       ),
                     ),
                     child: Row(
                       children: [
                         const Icon(
                           LucideIcons.mapPin,
-                          size: 18,
                           color: Colors.white,
+                          size: 19,
                         ),
-                        const SizedBox(width: 10),
+                        const SizedBox(width: 9),
                         Expanded(
                           child: Text(
                             '${_kantorList.length} titik cabang aktif',
-                            style: theme.typography.small.copyWith(
+                            style: theme.typography.xSmall.copyWith(
                               color: Colors.white,
                               fontWeight: FontWeight.w600,
                             ),
-                          ),
-                        ),
-                        Text(
-                          'DIPANTAU REALTIME',
-                          style: theme.typography.xSmall.copyWith(
-                            color: Colors.white.withValues(alpha: 0.82),
-                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ],
@@ -918,6 +1027,7 @@ class _HomePageState extends State<HomePage> {
                 ],
               ),
             ),
+
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
               child: MouseRegion(
