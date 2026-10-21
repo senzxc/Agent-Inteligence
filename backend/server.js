@@ -485,7 +485,7 @@ app.get(
 app.post(
     '/api/agent-tracking/start',
     authenticate,
-    requireRoles('AGENT'),
+    requireRoles('HEAD_MARKETING', 'HEAD_AGENT', 'AGENT'),
     (req, res) => {
         const user = req.authUser;
         const stambuk = String(user.STAMBUK);
@@ -529,7 +529,7 @@ app.post(
 app.get(
     '/api/agent-tracking/status',
     authenticate,
-    requireRoles('AGENT'),
+    requireRoles('HEAD_MARKETING', 'HEAD_AGENT', 'AGENT'),
     (req, res) => {
         const stambuk = String(req.authUser.STAMBUK);
         const agent = activeAgents.get(stambuk) ?? null;
@@ -549,7 +549,7 @@ app.get(
 app.post(
     '/api/agent-tracking/location',
     authenticate,
-    requireRoles('AGENT'),
+    requireRoles('HEAD_MARKETING', 'HEAD_AGENT', 'AGENT'),
     (req, res) => {
         const stambuk = String(req.authUser.STAMBUK);
         const agent = activeAgents.get(stambuk);
@@ -621,7 +621,7 @@ app.post(
 app.post(
     '/api/agent-tracking/stop',
     authenticate,
-    requireRoles('AGENT'),
+    requireRoles('HEAD_MARKETING', 'HEAD_AGENT', 'AGENT'),
     (req, res) => {
         const stambuk = String(req.authUser.STAMBUK);
         const agent = activeAgents.get(stambuk);
@@ -745,6 +745,7 @@ app.get(
 app.post(
     '/api/agents/:agentId/tasks',
     authenticate,
+    requireRoles('HEAD_AGENT', 'AGENT'),
     async (req, res) => {
         try {
             const agentId = String(req.params.agentId).trim();
@@ -832,6 +833,7 @@ app.post(
 app.patch(
     '/api/tasks/:taskId/status',
     authenticate,
+    requireRoles('HEAD_AGENT', 'AGENT'),
     async (req, res) => {
         try {
             const taskId = String(req.params.taskId);
@@ -899,6 +901,7 @@ app.patch(
 app.delete(
     '/api/tasks/:taskId',
     authenticate,
+    requireRoles('HEAD_AGENT', 'AGENT'),
     async (req, res) => {
         try {
             const taskId = String(req.params.taskId);
