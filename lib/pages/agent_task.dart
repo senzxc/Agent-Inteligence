@@ -1565,7 +1565,7 @@ class _AgentTaskPageState extends State<AgentTaskPage> {
               ),
             ],
           ),
-          const SizedBox(height: 13),
+          const SizedBox(height: 10),
           if (widget.canManageTasks)
             Container(
               padding: const EdgeInsets.fromLTRB(11, 8, 8, 8),
