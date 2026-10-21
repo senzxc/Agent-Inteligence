@@ -53,14 +53,6 @@ class _AgentHomePageState extends State<AgentHomePage> {
         fallback: 'Kantor belum ditentukan',
       );
 
-  int get _totalTasks => _tasks.length;
-
-  int get _runningTasks =>
-      _tasks.where((task) => _status(task) == 'Berjalan').length;
-
-  int get _completedTasks =>
-      _tasks.where((task) => _status(task) == 'Selesai').length;
-
   @override
   void initState() {
     super.initState();
@@ -177,26 +169,112 @@ class _AgentHomePageState extends State<AgentHomePage> {
   Future<void> _confirmLogout() async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
+      barrierDismissible: true,
+      builder: (dialogContext) => Dialog(
         backgroundColor: Colors.white,
-        title: const Text('Keluar dari aplikasi?'),
-        content: const Text(
-          'Anda akan keluar dari sesi akun saat ini.',
+        surfaceTintColor: Colors.white,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 22, vertical: 24),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        clipBehavior: Clip.antiAlias,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(24, 22, 24, 20),
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Color(0xFFB91C1C), Color(0xFFEF4444)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.logout_rounded,
+                        color: Colors.white,
+                        size: 28,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text(
+                      'Yakin ingin keluar?',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 22, 24, 20),
+                child: Column(
+                  children: [
+                    const Text(
+                      'Anda akan keluar dari sesi akun saat ini. Pastikan semua pekerjaan yang sedang dilakukan telah selesai sebelum keluar dari aplikasi.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: _textSecondary,
+                        fontSize: 13,
+                        height: 1.5,
+                      ),
+                    ),
+                    const SizedBox(height: 22),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SizedBox(
+                            height: 44,
+                            child: OutlinedButton(
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: _primary,
+                                side: const BorderSide(color: Color(0xFFBBD5F5)),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              onPressed: () => Navigator.pop(dialogContext, false),
+                              child: const Text('Batal'),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: SizedBox(
+                            height: 44,
+                            child: FilledButton(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFFDC2626),
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              onPressed: () => Navigator.pop(dialogContext, true),
+                              child: const Text('Keluar'),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Batal'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFFDC2626),
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Keluar'),
-          ),
-        ],
       ),
     );
 
@@ -285,6 +363,10 @@ class _AgentHomePageState extends State<AgentHomePage> {
         ),
       ),
     );
+  }
+
+  Widget _buildSummary() {
+    return const SizedBox.shrink();
   }
 
   Widget _buildWelcomeCard() {
@@ -415,115 +497,6 @@ class _AgentHomePageState extends State<AgentHomePage> {
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildSectionTitle(String title, String subtitle) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: const TextStyle(
-            color: _textPrimary,
-            fontSize: 18,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          subtitle,
-          style: const TextStyle(
-            color: _textSecondary,
-            fontSize: 12,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildSummary() {
-    return Row(
-      children: [
-        // Expanded(
-        //   child: _summaryCard(
-        //     label: 'Total',
-        //     count: _totalTasks,
-        //     icon: Icons.assignment_outlined,
-        //     color: _primary,
-        //     background: const Color(0xFFEAF3FF),
-        //   ),
-        // ),
-        // const SizedBox(width: 9),
-        // Expanded(
-        //   child: _summaryCard(
-        //     label: 'Berjalan',
-        //     count: _runningTasks,
-        //     icon: Icons.autorenew_rounded,
-        //     color: const Color(0xFFC2410C),
-        //     background: const Color(0xFFFFF7ED),
-        //   ),
-        // ),
-        // const SizedBox(width: 9),
-        // Expanded(
-        //   child: _summaryCard(
-        //     label: 'Selesai',
-        //     count: _completedTasks,
-        //     icon: Icons.check_circle_outline_rounded,
-        //     color: const Color(0xFF15803D),
-        //     background: const Color(0xFFF0FDF4),
-        //   ),
-        // ),
-      ],
-    );
-  }
-
-  Widget _summaryCard({
-    required String label,
-    required int count,
-    required IconData icon,
-    required Color color,
-    required Color background,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 15, horizontal: 8),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(17),
-        border: Border.all(color: const Color(0xFFDCE8F5)),
-      ),
-      child: Column(
-        children: [
-          Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              color: background,
-              borderRadius: BorderRadius.circular(11),
-            ),
-            child: Icon(icon, color: color, size: 19),
-          ),
-          const SizedBox(height: 9),
-          Text(
-            '$count',
-            style: TextStyle(
-              color: color,
-              fontSize: 22,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 3),
-          Text(
-            label,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: _textSecondary,
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
     );
   }
 
