@@ -1030,13 +1030,93 @@ class _AgentListPageState extends State<AgentListPage>
                             value: timestamp,
                           ),
 
-                          _agentDetailTile(
-                            icon: Icons.my_location_rounded,
-                            label: 'Koordinat GPS',
-                            value:
-                                '${location.latitude.toStringAsFixed(6)}, '
-                                '${location.longitude.toStringAsFixed(6)}',
+                          
+                          Container(
+                            width: double.infinity,
+                            margin: const EdgeInsets.only(bottom: 9),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 13,
+                              vertical: 10,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF8FAFD),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: const Color(0xFFE8EEF6),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 36,
+                                  height: 36,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFE7F0FF),
+                                    borderRadius: BorderRadius.circular(11),
+                                  ),
+                                  child: const Icon(
+                                    Icons.my_location_rounded,
+                                    color: Color(0xFF1565C0),
+                                    size: 19,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'Koordinat GPS',
+                                        style: TextStyle(
+                                          color: Color(0xFF64748B),
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 3),
+                                      Text(
+                                        '${location.latitude.toStringAsFixed(6)}, '
+                                        '${location.longitude.toStringAsFixed(6)}',
+                                        style: const TextStyle(
+                                          color: Color(0xFF14264D),
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                IconButton(
+                                  tooltip: 'Salin koordinat',
+                                  visualDensity: VisualDensity.compact,
+                                  onPressed: () async {
+                                    final coordinates =
+                                        '${location.latitude.toStringAsFixed(6)}, '
+                                        '${location.longitude.toStringAsFixed(6)}';
+
+                                    await Clipboard.setData(
+                                      ClipboardData(text: coordinates),
+                                    );
+
+                                    if (!dialogContext.mounted) return;
+
+                                    ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Koordinat berhasil disalin.'),
+                                        duration: Duration(seconds: 2),
+                                      ),
+                                    );
+                                  },
+                                  icon: const Icon(
+                                    Icons.copy_rounded,
+                                    color: Color(0xFF1565C0),
+                                    size: 20,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
+
 
                           const SizedBox(height: 6),
 
