@@ -387,96 +387,114 @@ app.get('/api/kantor', async (req, res) => {
     }
 });
 
-app.get(
-    '/api/agents',
-    authenticate,
-    requireLeadership,
-    async (req, res) => {
-        let connection;
 
-        try {
-            const requestedBranch = req.query.kantor
-                ? String(req.query.kantor).trim()
-                : null;
+/**
+ * GET /api/agents
+ * Mengambil profil agen dari:
+ * DAFTAR_AGEN + TM_AGENCY2 + DAFTAR_KANTOR
+ *
+ * Query opsional:
+ * ?search=anita
+ * ?jabatan=WA
+ * ?kantor=KHOS
+ * ?search=anita&jabatan=WA&kantor=KHOS
+ */
+app.get('/api/agents', authenticate, async (req, res) => {
+    let connection;
 
-            let branch = requestedBranch;
+    try {
+        connection = await getConnection();
 
-            if (req.authRole === 'HEAD_AGENT') {
-                // Kepala Agen tidak boleh memilih cabang lain.
-                branch = String(req.authUser.KANTOR ?? '').trim();
-            }
+        const conditions = [];
+        const binds = {};
 
-            if (
-                req.authRole === 'HEAD_MARKETING' &&
-                !branch
-            ) {
-                // Kepala Pemasaran boleh melihat semua cabang.
-                branch = null;
-            }
+        const search = String(req.query.search ?? '').trim();
+        const jabatan = String(req.query.jabatan ?? '')
+            .trim()
+            .toUpperCase();
+        const kantor = String(req.query.kantor ?? '')
+            .trim()
+            .toUpperCase();
 
-            connection = await getConnection();
+        if (search) {
+            conditions.push(`
+                (
+                    UPPER(a.NAMA_DEPAN) LIKE :search
+                    OR TO_CHAR(b.I_AGEN) LIKE :search
+                    OR UPPER(a.EMAIL) LIKE :search
+                    OR UPPER(a.NOMOR_HP) LIKE :search
+                )
+            `);
 
-            const result = await connection.execute(
-                `
-                SELECT
-                    STAMBUK,
-                    NAMA,
-                    KANTOR,
-                    ALAMAT,
-                    EMAIL,
-                    LEVEL_USER,
-                    AKTIF,
-                    JBT,
-                    WARNA,
-                    LAYAR,
-                    EXPIRED
-                FROM DATA_USER
-                WHERE TRIM(LEVEL_USER) = '3'
-                AND (
-                    :kantor IS NULL
-                      OR UPPER(TRIM(KANTOR)) =
-                         UPPER(TRIM(:kantor))
-                  )
-                ORDER BY NAMA
-                `,
-                { kantor: branch },
-                { outFormat: oracledb.OUT_FORMAT_OBJECT }
+            binds.search = `%${search.toUpperCase()}%`;
+        }
+
+        if (jabatan) {
+            conditions.push(
+                'UPPER(b.C_AGENCY_JABATAN) = :jabatan'
             );
+            binds.jabatan = jabatan;
+        }
 
-            const agents = result.rows.map(agent => {
-                const tracking = activeAgents.get(
-                    String(agent.STAMBUK)
-                );
+        if (kantor) {
+            conditions.push(
+                'UPPER(c.KODE_KANTOR) = :kantor'
+            );
+            binds.kantor = kantor;
+        }
 
-                return {
-                    ...agent,
-                    APP_ROLE: 'AGENT',
-                    isTracking: Boolean(tracking),
-                    latitude: tracking?.latitude ?? null,
-                    longitude: tracking?.longitude ?? null,
-                    lastUpdated: tracking?.lastUpdated ?? null,
-                };
-            });
+        const whereClause = conditions.length
+            ? `WHERE ${conditions.join(' AND ')}`
+            : '';
 
-            return res.json({
-                success: true,
-                total: agents.length,
-                data: agents,
-            });
-        } catch (error) {
-            console.error('Get Agents Error:', error);
-
-            return res.status(500).json({
-                success: false,
-                message: 'Gagal mengambil daftar agen',
-            });
-        } finally {
-            if (connection) {
-                await connection.close().catch(console.error);
+        const result = await connection.execute(
+            `
+            SELECT
+                a.NAMA_DEPAN AS NAMA_AGEN,
+                b.I_AGEN AS NOMOR_AGEN,
+                a.TANGGAL_LAHIR,
+                a.TANGGAL_LISENSI,
+                a.NOMOR_HP,
+                a.ALAMAT,
+                a.EMAIL,
+                b.C_AGENCY_JABATAN,
+                c.KODE_KANTOR,
+                c.NAMA_KANTOR
+            FROM DAFTAR_AGEN a
+            INNER JOIN TM_AGENCY2 b
+                ON a.NOMOR_AGEN = b.I_AGEN
+            INNER JOIN DAFTAR_KANTOR c
+                ON a.NOMOR_KANTOR = c.NOMOR_KANTOR
+            ${whereClause}
+            ORDER BY a.NAMA_DEPAN ASC
+            `,
+            binds,
+            {
+                outFormat: oracledb.OUT_FORMAT_OBJECT,
             }
+        );
+
+        return res.json({
+            success: true,
+            message: 'Data agen berhasil diambil',
+            total: result.rows.length,
+            data: result.rows,
+        });
+    } catch (error) {
+        console.error('Oracle Agent List Error:', error);
+
+        return res.status(500).json({
+            success: false,
+            message: 'Gagal mengambil data agen',
+            // Detail error hanya di log server.
+        });
+    } finally {
+        if (connection) {
+            await connection.close().catch(console.error);
         }
     }
-);
+});
+
 
 // ========================================
 // TRACKING: MULAI
