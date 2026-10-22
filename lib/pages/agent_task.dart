@@ -47,8 +47,13 @@ class _AgentTaskPageState extends State<AgentTaskPage> {
     return fallback;
   }
 
-  String get _agentName =>
-      _firstValue(['NAMA_DEPAN', 'NAMA', 'N_AGEN', 'nama'], fallback: 'Agen');
+  String get _agentName => _firstValue([
+    'NAMA_AGEN',
+    'NAMA_DEPAN',
+    'NAMA',
+    'N_AGEN',
+    'nama',
+  ], fallback: 'Agen');
 
   String get _agentNumber =>
       _firstValue(['NOMOR_AGEN', 'STAMBUK', 'I_AGEN', 'nomorAgen', 'stambuk']);
