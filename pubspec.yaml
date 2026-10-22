@@ -44,6 +44,7 @@ dependencies:
   lottie: ^3.6.1
   geolocator: ^14.1.1
   geocoding: ^5.0.0
+  location: ^10.0.2
 
 dev_dependencies:
   flutter_test:
