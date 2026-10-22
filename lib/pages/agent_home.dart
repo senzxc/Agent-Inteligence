@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 
 import '../services/api_service.dart';
@@ -40,7 +39,7 @@ class _AgentHomePageState extends State<AgentHomePage> {
   }
 
   String get _name => _firstValue(
-        ['NAMA', 'nama', 'NAMA_DEPAN', 'N_AGEN'],
+        ['NAMA_AGEN', 'NAMA', 'nama', 'NAMA_DEPAN', 'N_AGEN'],
         fallback: 'Agen',
       );
 
@@ -49,7 +48,7 @@ class _AgentHomePageState extends State<AgentHomePage> {
       );
 
   String get _office => _firstValue(
-        ['KANTOR', 'kantor'],
+        ['NAMA_KANTOR', 'KODE_KANTOR', 'KANTOR', 'kantor'],
         fallback: 'Kantor belum ditentukan',
       );
 
@@ -63,7 +62,7 @@ class _AgentHomePageState extends State<AgentHomePage> {
     if (_agentId == '-') {
       setState(() {
         _isLoading = false;
-        _errorMessage = 'Stambuk akun tidak ditemukan.';
+        _errorMessage = 'ID agen akun tidak ditemukan.';
       });
       return;
     }
