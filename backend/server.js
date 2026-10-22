@@ -22,7 +22,7 @@ app.use(express.json());
 // Token login: token -> data user
 const activeSessions = new Map();
 
-// Lokasi agen aktif: STAMBUK -> data lokasi
+// Lokasi agen aktif: ID agen -> data lokasi
 const activeAgents = new Map();
 
 // ========================================
@@ -77,30 +77,50 @@ async function writeTasks(tasks) {
 // ROLE / HAK AKSES
 // ========================================
 
-const ROLE_LEVELS = {
+const ADMIN_ROLE_LEVELS = {
     HEAD_MARKETING: '1',
     HEAD_AGENT: '2',
     AGENT: '3',
 };
 
-function resolveAppRole(levelUser) {
-    const level = String(levelUser ?? '').trim();
+const AGENCY_ROLE_CODES = {
+    KD: 'HEAD_MARKETING',
+    AD: 'HEAD_AGENT',
+    AM: 'AGENT',
+    AS: 'AGENT',
+    WA: 'AGENT',
+};
 
-    switch (level) {
-        case ROLE_LEVELS.HEAD_MARKETING:
-            return 'HEAD_MARKETING';
-        case ROLE_LEVELS.HEAD_AGENT:
-            return 'HEAD_AGENT';
-        case ROLE_LEVELS.AGENT:
-            return 'AGENT';
-        default:
-            return 'UNKNOWN';
+// Keep source job codes in the user data; this map only grants generic app access.
+function resolveAppRole(user) {
+    if (user?.C_AGENCY_JABATAN != null) {
+        return AGENCY_ROLE_CODES[
+            String(user.C_AGENCY_JABATAN).trim().toUpperCase()
+        ] ?? 'UNKNOWN';
     }
+
+    const level = String(user?.LEVEL_USER ?? '').trim();
+
+    if (level === ADMIN_ROLE_LEVELS.HEAD_MARKETING) {
+        return 'HEAD_MARKETING';
+    }
+    if (level === ADMIN_ROLE_LEVELS.HEAD_AGENT) {
+        return 'HEAD_AGENT';
+    }
+    if (level === ADMIN_ROLE_LEVELS.AGENT) {
+        return 'AGENT';
+    }
+
+    return 'UNKNOWN';
+}
+
+function getAuthenticatedUserId(user) {
+    return user?.I_AGEN ?? user?.STAMBUK;
 }
 
 function requireRoles(...allowedRoles) {
     return (req, res, next) => {
-        const role = resolveAppRole(req.authUser?.LEVEL_USER);
+        const role = req.authUser?.APP_ROLE ?? resolveAppRole(req.authUser);
 
         if (!allowedRoles.includes(role)) {
             return res.status(403).json({
@@ -175,7 +195,7 @@ app.get('/api/test-db', async (req, res) => {
         connection = await getConnection();
 
         const result = await connection.execute(
-            'SELECT * FROM DATA_USER FETCH FIRST 5 ROWS ONLY',
+            'SELECT 1 AS DB_CONNECTED FROM DUAL',
             {},
             { outFormat: oracledb.OUT_FORMAT_OBJECT }
         );
@@ -219,7 +239,55 @@ app.post('/api/login', async (req, res) => {
     try {
         connection = await getConnection();
 
-        const result = await connection.execute(
+        const agencyResult = await connection.execute(
+            `
+            SELECT
+                b.I_AGEN,
+                b.C_AGENCY_JABATAN,
+                a.NAMA_DEPAN AS NAMA_AGEN,
+                a.TANGGAL_LAHIR,
+                a.TANGGAL_LISENSI,
+                a.NOMOR_HP,
+                a.ALAMAT,
+                a.EMAIL,
+                c.KODE_KANTOR,
+                c.NAMA_KANTOR
+            FROM TM_AGENCY2 b
+            LEFT JOIN DAFTAR_AGEN a
+                ON a.NOMOR_AGEN = b.I_AGEN
+            LEFT JOIN DAFTAR_KANTOR c
+                ON a.NOMOR_KANTOR = c.NOMOR_KANTOR
+            WHERE b.I_AGEN = :stambuk
+              AND b.N_PASSWORD = :password
+            `,
+            { stambuk, password },
+            { outFormat: oracledb.OUT_FORMAT_OBJECT }
+        );
+
+        if (agencyResult.rows.length > 0) {
+            const user = agencyResult.rows[0];
+            const appRole = resolveAppRole(user);
+
+            if (appRole === 'UNKNOWN') {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Kode jabatan belum dikenali. Hubungi administrator.',
+                });
+            }
+
+            const token = crypto.randomBytes(32).toString('hex');
+            const authenticatedUser = { ...user, APP_ROLE: appRole };
+            activeSessions.set(token, authenticatedUser);
+
+            return res.json({
+                success: true,
+                message: 'Login berhasil',
+                token,
+                user: authenticatedUser,
+            });
+        }
+
+        const adminResult = await connection.execute(
             `
             SELECT
                 STAMBUK,
@@ -240,14 +308,14 @@ app.post('/api/login', async (req, res) => {
             { outFormat: oracledb.OUT_FORMAT_OBJECT }
         );
 
-        if (result.rows.length === 0) {
+        if (adminResult.rows.length === 0) {
             return res.status(401).json({
                 success: false,
                 message: 'Stambuk atau password salah',
             });
         }
 
-        const user = result.rows[0];
+        const user = adminResult.rows[0];
 
         if (Number(user.AKTIF) !== 1) {
             return res.status(403).json({
@@ -256,7 +324,7 @@ app.post('/api/login', async (req, res) => {
             });
         }
 
-        const appRole = resolveAppRole(user.LEVEL_USER);
+        const appRole = resolveAppRole(user);
 
         if (appRole === 'UNKNOWN') {
             return res.status(403).json({
@@ -299,7 +367,7 @@ app.post('/api/login', async (req, res) => {
 // ========================================
 
 app.get('/api/auth/me', authenticate, (req, res) => {
-    const appRole = resolveAppRole(req.authUser.LEVEL_USER);
+    const appRole = req.authUser.APP_ROLE ?? resolveAppRole(req.authUser);
 
     return res.json({
         success: true,
@@ -506,7 +574,7 @@ app.post(
     requireRoles('HEAD_MARKETING', 'HEAD_AGENT', 'AGENT'),
     (req, res) => {
         const user = req.authUser;
-        const stambuk = String(user.STAMBUK);
+        const stambuk = String(getAuthenticatedUserId(user) ?? '');
 
         if (activeAgents.has(stambuk)) {
             return res.status(409).json({
@@ -518,9 +586,9 @@ app.post(
 
         const agent = {
             stambuk,
-            nama: user.NAMA,
-            kantor: user.KANTOR,
-            level: user.LEVEL_USER,
+            nama: user.NAMA_AGEN ?? user.NAMA,
+            kantor: user.KODE_KANTOR ?? user.KANTOR,
+            level: user.C_AGENCY_JABATAN ?? user.LEVEL_USER,
             status: 'active',
             latitude: null,
             longitude: null,
@@ -549,7 +617,7 @@ app.get(
     authenticate,
     requireRoles('HEAD_MARKETING', 'HEAD_AGENT', 'AGENT'),
     (req, res) => {
-        const stambuk = String(req.authUser.STAMBUK);
+        const stambuk = String(getAuthenticatedUserId(req.authUser) ?? '');
         const agent = activeAgents.get(stambuk) ?? null;
 
         return res.json({
@@ -569,7 +637,7 @@ app.post(
     authenticate,
     requireRoles('HEAD_MARKETING', 'HEAD_AGENT', 'AGENT'),
     (req, res) => {
-        const stambuk = String(req.authUser.STAMBUK);
+        const stambuk = String(getAuthenticatedUserId(req.authUser) ?? '');
         const agent = activeAgents.get(stambuk);
 
         if (!agent) {
@@ -641,7 +709,7 @@ app.post(
     authenticate,
     requireRoles('HEAD_MARKETING', 'HEAD_AGENT', 'AGENT'),
     (req, res) => {
-        const stambuk = String(req.authUser.STAMBUK);
+        const stambuk = String(getAuthenticatedUserId(req.authUser) ?? '');
         const agent = activeAgents.get(stambuk);
 
         if (!agent) {
@@ -681,7 +749,7 @@ app.get(
 
         if (req.authRole === 'HEAD_AGENT') {
             const ownBranch = String(
-                req.authUser.KANTOR ?? ''
+                req.authUser.KODE_KANTOR ?? req.authUser.KANTOR ?? ''
             ).trim().toUpperCase();
 
             agents = agents.filter(
@@ -818,7 +886,9 @@ app.post(
                 deskripsi,
                 tenggat,
                 status: 'Belum dimulai',
-                createdBy: String(req.authUser.STAMBUK),
+                createdBy: String(
+                    getAuthenticatedUserId(req.authUser) ?? ''
+                ),
                 createdAt: now,
                 updatedAt: now,
                 completedAt: null,
@@ -961,8 +1031,5 @@ app.delete(
 
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server berjalan di port ${PORT}`);
-    console.log('Pemetaan role LEVEL_USER:');
-    console.log('1 = Kepala Pemasaran');
-    console.log('2 = Kepala Agen / Agen Director');
-    console.log('3 = Agen');
+    console.log('Role agen menggunakan C_AGENCY_JABATAN; role admin menggunakan LEVEL_USER.');
 });
