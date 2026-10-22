@@ -125,7 +125,12 @@ class _AgentListPageState extends State<AgentListPage>
           .trim()
           .toUpperCase();
       final levelUser = (arguments['LEVEL_USER'] ?? '').toString().trim();
-      _isHeadMarketing = appRole == 'HEAD_MARKETING' || levelUser == '1';
+      final agencyRole = (arguments['C_AGENCY_JABATAN'] ?? '')
+          .toString()
+          .trim()
+          .toUpperCase();
+      _isHeadMarketing =
+          appRole == 'HEAD_MARKETING' || agencyRole == 'KD' || levelUser == '1';
       _kantor = arguments['KODE_KANTOR']?.toString().trim();
       _namaKantor = arguments['NAMA_KANTOR']?.toString().trim();
       _alamatKantor = arguments['ALAMAT_KANTOR']?.toString().trim();
@@ -216,12 +221,12 @@ class _AgentListPageState extends State<AgentListPage>
           final location = _agentCoordinates(agent);
           if (location == null) return null;
 
-          final name = (agent['NAMA'] ?? 'Agen').toString();
+          final name = (agent['NAMA_AGEN'] ?? 'Agen').toString();
           return flutter_map.Marker(
             point: location,
             width: 52,
             height: 60,
-            child: _agentMarker(name, _agentMarkerColor(agent['STAMBUK'])),
+            child: _agentMarker(name, _agentMarkerColor(agent['NOMOR_AGEN'])),
           );
         })
         .whereType<flutter_map.Marker>()
@@ -459,14 +464,23 @@ class _AgentListPageState extends State<AgentListPage>
   }
 
   Future<void> _showAgentDetails(Map<String, dynamic> agent) {
-    final name = (agent['NAMA'] ?? '-').toString();
-    final stambuk = (agent['STAMBUK'] ?? '-').toString();
-    final kantor = (agent['KANTOR'] ?? '-').toString();
+    final name = (agent['NAMA_AGEN'] ?? '-').toString();
+    final agentNumber = (agent['NOMOR_AGEN'] ?? '-').toString();
+    final kantor = (agent['NAMA_KANTOR'] ?? agent['KODE_KANTOR'] ?? '-')
+        .toString();
     final tracking = agent['isTracking'] == true;
-    final alamat = (agent['ALAMAT'] ?? agent['ALAMAT_USER'] ?? 'Belum tersedia')
+    final alamat = (agent['ALAMAT'] ?? 'Belum tersedia').toString().trim();
+    final email = (agent['EMAIL'] ?? 'Belum tersedia').toString().trim();
+    final phone = (agent['NOMOR_HP'] ?? 'Belum tersedia').toString().trim();
+    final jabatan = (agent['C_AGENCY_JABATAN'] ?? 'Belum tersedia')
         .toString()
         .trim();
-    final email = (agent['EMAIL'] ?? 'Belum tersedia').toString().trim();
+    final tanggalLahir = (agent['TANGGAL_LAHIR'] ?? 'Belum tersedia')
+        .toString()
+        .trim();
+    final tanggalLisensi = (agent['TANGGAL_LISENSI'] ?? 'Belum tersedia')
+        .toString()
+        .trim();
     final statusColor = tracking
         ? const Color(0xFF15803D)
         : const Color(0xFF64748B);
@@ -608,8 +622,13 @@ class _AgentListPageState extends State<AgentListPage>
                         const SizedBox(height: 10),
                         _agentDetailTile(
                           icon: Icons.badge_outlined,
-                          label: 'Stambuk',
-                          value: stambuk,
+                          label: 'Nomor Agen',
+                          value: agentNumber,
+                        ),
+                        _agentDetailTile(
+                          icon: Icons.work_outline,
+                          label: 'Jabatan',
+                          value: jabatan,
                         ),
                         _agentDetailTile(
                           icon: Icons.apartment_rounded,
@@ -622,9 +641,24 @@ class _AgentListPageState extends State<AgentListPage>
                           value: alamat.isEmpty ? 'Belum tersedia' : alamat,
                         ),
                         _agentDetailTile(
+                          icon: Icons.phone_outlined,
+                          label: 'Nomor HP',
+                          value: phone.isEmpty ? 'Belum tersedia' : phone,
+                        ),
+                        _agentDetailTile(
                           icon: Icons.email_outlined,
                           label: 'Email',
                           value: email.isEmpty ? 'Belum tersedia' : email,
+                        ),
+                        _agentDetailTile(
+                          icon: Icons.cake_outlined,
+                          label: 'Tanggal Lahir',
+                          value: tanggalLahir,
+                        ),
+                        _agentDetailTile(
+                          icon: Icons.verified_outlined,
+                          label: 'Tanggal Lisensi',
+                          value: tanggalLisensi,
                         ),
                       ],
                     ),
@@ -1030,7 +1064,6 @@ class _AgentListPageState extends State<AgentListPage>
                             value: timestamp,
                           ),
 
-                          
                           Container(
                             width: double.infinity,
                             margin: const EdgeInsets.only(bottom: 9),
@@ -1116,7 +1149,6 @@ class _AgentListPageState extends State<AgentListPage>
                               ],
                             ),
                           ),
-
 
                           const SizedBox(height: 6),
 
@@ -1352,29 +1384,77 @@ class _AgentListPageState extends State<AgentListPage>
     }
 
     try {
-      final result = await ApiService.getAgentList(kantor: _kantor);
-      final data = result['data'];
+      final results = await Future.wait([
+        ApiService.getAgentList(kantor: _kantor),
+        ApiService.getAgents(),
+      ]);
+      final profileData = results[0]['data'];
 
-      if (data is! Map || data['success'] != true) {
+      if (profileData is! Map || profileData['success'] != true) {
         throw Exception(
-          data is Map
-              ? data['message']?.toString() ?? 'Gagal memuat daftar agen.'
+          profileData is Map
+              ? profileData['message']?.toString() ??
+                    'Gagal memuat daftar agen.'
               : 'Format respons server tidak valid.',
         );
       }
 
-      final rows = data['data'];
-      if (rows is! List) {
+      final profileRows = profileData['data'];
+      if (profileRows is! List) {
         throw Exception('Data agen dari server tidak valid.');
       }
+
+      final trackingData = results[1]['data'];
+      if (trackingData is! Map || trackingData['success'] != true) {
+        throw Exception(
+          trackingData is Map
+              ? trackingData['message']?.toString() ??
+                    'Gagal memuat data tracking agen.'
+              : 'Format respons tracking server tidak valid.',
+        );
+      }
+
+      final trackingRows = trackingData['data'];
+      if (trackingRows is! List) {
+        throw Exception('Data tracking agen dari server tidak valid.');
+      }
+
+      final trackingByAgent = <String, Map<String, dynamic>>{};
+      for (final item in trackingRows.whereType<Map>()) {
+        final tracking = Map<String, dynamic>.from(item);
+        final agentId =
+            (tracking['stambuk'] ??
+                    tracking['I_AGEN'] ??
+                    tracking['NOMOR_AGEN'] ??
+                    '')
+                .toString()
+                .trim();
+        if (agentId.isNotEmpty) {
+          trackingByAgent[agentId] = tracking;
+        }
+      }
+
+      final agents = profileRows.whereType<Map>().map((item) {
+        final profile = Map<String, dynamic>.from(item);
+        final agentId = (profile['NOMOR_AGEN'] ?? '').toString().trim();
+        final tracking = trackingByAgent[agentId];
+        return {
+          ...profile,
+          if (tracking != null) ...{
+            'latitude': tracking['latitude'],
+            'longitude': tracking['longitude'],
+            'accuracy': tracking['accuracy'],
+            'speed': tracking['speed'],
+            'lastUpdated': tracking['lastUpdated'],
+          },
+          'isTracking': tracking != null,
+        };
+      }).toList();
 
       if (!mounted) return;
 
       setState(() {
-        _agents = rows
-            .whereType<Map>()
-            .map((item) => Map<String, dynamic>.from(item))
-            .toList();
+        _agents = agents;
         _loading = false;
         _error = null;
         _refreshError = null;
@@ -1646,11 +1726,12 @@ class _AgentListPageState extends State<AgentListPage>
   }
 
   Widget _buildAgentCard(Map<String, dynamic> agent) {
-    final name = (agent['NAMA'] ?? '-').toString();
-    final stambuk = (agent['STAMBUK'] ?? '-').toString();
-    final kantor = (agent['KANTOR'] ?? '-').toString();
+    final name = (agent['NAMA_AGEN'] ?? '-').toString();
+    final agentNumber = (agent['NOMOR_AGEN'] ?? '-').toString();
+    final kantor = (agent['NAMA_KANTOR'] ?? agent['KODE_KANTOR'] ?? '-')
+        .toString();
     final tracking = agent['isTracking'] == true;
-    final markerColor = _agentMarkerColor(stambuk);
+    final markerColor = _agentMarkerColor(agentNumber);
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
@@ -1687,7 +1768,7 @@ class _AgentListPageState extends State<AgentListPage>
               name,
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
-            subtitle: Text('Stambuk: $stambuk\nKantor: $kantor'),
+            subtitle: Text('Nomor Agen: $agentNumber\nKantor: $kantor'),
             isThreeLine: true,
             trailing: Column(
               mainAxisAlignment: MainAxisAlignment.center,
