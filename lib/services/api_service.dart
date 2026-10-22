@@ -159,25 +159,10 @@ class ApiService {
     return _trackingRequest('GET', '/api/agent-tracking/agents');
   }
 
-  
   // Mengambil daftar seluruh agen dari endpoint /api/agents.
-  static Future<Map<String, dynamic>> getAgentList({
-    String? kantor,
-  }) {
-    final queryParameters = <String, String>{};
+  static Future<Map<String, dynamic>> getAgentList({String? kantor}) =>
+      getAgentProfiles(kantor: kantor);
 
-    if (kantor != null && kantor.trim().isNotEmpty) {
-      queryParameters['kantor'] = kantor.trim();
-    }
-
-    final query = queryParameters.isEmpty
-        ? ''
-        : '?${Uri(queryParameters: queryParameters).query}';
-
-    return _trackingRequest('GET', '/api/agents$query');
-  }
-
-  
   // ========================================
   // TUGAS AGEN
   // ========================================
@@ -234,5 +219,29 @@ class ApiService {
     );
   }
 
+  static Future<Map<String, dynamic>> getAgentProfiles({
+    String? search,
+    String? jabatan,
+    String? kantor,
+  }) {
+    final query = <String, String>{};
 
+    if (search != null && search.trim().isNotEmpty) {
+      query['search'] = search.trim();
+    }
+
+    if (jabatan != null && jabatan.trim().isNotEmpty) {
+      query['jabatan'] = jabatan.trim();
+    }
+
+    if (kantor != null && kantor.trim().isNotEmpty) {
+      query['kantor'] = kantor.trim();
+    }
+
+    final queryString = query.isEmpty
+        ? ''
+        : '?${Uri(queryParameters: query).query}';
+
+    return _trackingRequest('GET', '/api/agents$queryString');
+  }
 }
