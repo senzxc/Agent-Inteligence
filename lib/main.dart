@@ -761,14 +761,23 @@ class _HomePageState extends State<HomePage> {
     final theme = Theme.of(context);
     final arguments = ModalRoute.of(context)?.settings.arguments;
     final user = arguments is Map ? arguments : const <String, dynamic>{};
-    final nama = (user['NAMA'] ?? user['nama'])?.toString().trim();
+    final nama = (user['NAMA_AGEN'] ?? user['NAMA'] ?? user['nama'])
+        ?.toString()
+        .trim();
     final displayName = nama == null || nama.isEmpty ? 'Admin Cabang' : nama;
     final kodeKantor =
-        (user['KANTOR'] ?? user['kantor'])?.toString().trim() ?? '-';
+        (user['KODE_KANTOR'] ?? user['KANTOR'] ?? user['kantor'])
+            ?.toString()
+            .trim() ??
+        '-';
     final levelUser = (user['LEVEL_USER'] ?? user['level_user'] ?? '')
         .toString()
         .trim();
-    final userRoleLabel = levelUser == '1'
+    final agencyRoleValue = (user['C_AGENCY_JABATAN'] ?? '').toString().trim();
+    final agencyRole = agencyRoleValue.toUpperCase();
+    final userRoleLabel = agencyRoleValue.isNotEmpty
+        ? agencyRoleValue
+        : levelUser == '1'
         ? 'Kepala Pemasaran'
         : levelUser == '2'
         ? 'Kepala Agen'
@@ -777,7 +786,13 @@ class _HomePageState extends State<HomePage> {
         : 'User';
     final appRole =
         (user['APP_ROLE'] ??
-                (levelUser == '1'
+                (agencyRole == 'KD'
+                    ? 'HEAD_MARKETING'
+                    : agencyRole == 'AD'
+                    ? 'HEAD_AGENT'
+                    : ['AM', 'AS', 'WA'].contains(agencyRole)
+                    ? 'AGENT'
+                    : levelUser == '1'
                     ? 'HEAD_MARKETING'
                     : levelUser == '2'
                     ? 'HEAD_AGENT'
@@ -919,7 +934,7 @@ class _HomePageState extends State<HomePage> {
 
                   const SizedBox(height: 18),
 
-                  // INFORMASI STAMBUK
+                  // INFORMASI ID AGEN
                   Row(
                     children: [
                       Icon(
@@ -930,7 +945,7 @@ class _HomePageState extends State<HomePage> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'Stambuk: ${(user['STAMBUK'] ?? user['stambuk'] ?? '-').toString()}',
+                          'ID: ${(user['I_AGEN'] ?? user['NOMOR_AGEN'] ?? user['STAMBUK'] ?? user['stambuk'] ?? '-').toString()}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.typography.small.copyWith(
