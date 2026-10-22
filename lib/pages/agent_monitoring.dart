@@ -241,10 +241,21 @@ class _AgentMonitoringPageState extends State<AgentMonitoringPage>
             .toString()
             .trim()
             .toUpperCase();
+    final appRole = (user['APP_ROLE'] ?? '').toString().trim().toUpperCase();
+    final agencyRole = (user['C_AGENCY_JABATAN'] ?? '')
+        .toString()
+        .trim()
+        .toUpperCase();
+    final canMonitorAgents =
+        appRole == 'HEAD_MARKETING' ||
+        appRole == 'HEAD_AGENT' ||
+        agencyRole == 'KD' ||
+        agencyRole == 'AD' ||
+        level == '1' ||
+        level == '2';
 
-    // Pemeriksaan tambahan di UI. Backend tetap wajib
-    // memverifikasi hak akses admin.
-    if (level != '1') {
+    // Backend tetap memverifikasi hak akses untuk endpoint tracking.
+    if (!canMonitorAgents) {
       return Scaffold(
         headers: [
           AppBar(
