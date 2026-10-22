@@ -417,19 +417,10 @@ app.get('/api/kantor', async (req, res) => {
         const result = await connection.execute(
             `
             SELECT
+                NOMOR_KANTOR,
                 KODE_KANTOR,
-                NAMA_KANTOR,
-                ALAMAT_KANTOR,
-                EMAIL,
-                PIC,
-                KET_KANTOR,
-                NO_SURAT,
-                BOX,
-                ZONA,
-                LATITUDE,
-                LONGITUDE,
-                DISTANCE
-            FROM DATA_KANTOR
+                NAMA_KANTOR
+            FROM DAFTAR_KANTOR
             `,
             {},
             { outFormat: oracledb.OUT_FORMAT_OBJECT }
