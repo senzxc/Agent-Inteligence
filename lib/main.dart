@@ -12,6 +12,8 @@ import 'package:shadcn_flutter/shadcn_flutter.dart';
 import 'pages/agent_home.dart';
 import 'pages/agent_list.dart';
 import 'pages/agent_monitoring.dart';
+import 'pages/agent_team_home.dart';
+import 'pages/kantor_list.dart';
 import 'services/api_service.dart';
 import 'services/gps_tracking_service.dart';
 
@@ -242,12 +244,103 @@ class BusinessIntelligenceApp extends StatelessWidget {
 
       initialRoute: '/',
       routes: {
-        '/': (context) => const LoginPage(),
+        '/': (context) => const SessionGatePage(),
         '/home': (context) => const HomePage(),
         '/agent-tracking': (context) => const AgentTrackingPage(),
         '/agent-monitoring': (context) => const AgentMonitoringPage(),
         '/agent-list': (context) => const AgentListPage(),
+        '/kantor-list': (context) => const KantorListPage(),
       },
+    );
+  }
+}
+
+class SessionGatePage extends StatefulWidget {
+  const SessionGatePage({super.key});
+
+  @override
+  State<SessionGatePage> createState() => _SessionGatePageState();
+}
+
+class _SessionGatePageState extends State<SessionGatePage> {
+  bool _isCheckingSession = true;
+  bool _showLogin = false;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _restoreSession();
+  }
+
+  Future<void> _restoreSession() async {
+    setState(() {
+      _isCheckingSession = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final storedUser = await ApiService.restoreSession();
+      if (storedUser == null) {
+        if (mounted) {
+          setState(() {
+            _isCheckingSession = false;
+            _showLogin = true;
+          });
+        }
+        return;
+      }
+
+      final user = await ApiService.getCurrentUser();
+      await AgentGpsTrackingService.instance.startAfterLogin();
+
+      if (!mounted) return;
+      Navigator.pushReplacementNamed(context, '/home', arguments: user);
+    } catch (error) {
+      if (!mounted) return;
+      if (!ApiService.hasSession) {
+        setState(() {
+          _isCheckingSession = false;
+          _showLogin = true;
+        });
+        return;
+      }
+
+      setState(() {
+        _isCheckingSession = false;
+        _errorMessage = error.toString().replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_showLogin) return const LoginPage();
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFFFFFFF),
+      child: Center(
+        child: _isCheckingSession
+            ? const CircularProgressIndicator()
+            : Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _errorMessage ?? 'Sesi tidak dapat dipulihkan.',
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    Button(
+                      style: _brandButtonStyle(),
+                      onPressed: _restoreSession,
+                      child: const Text('COBA LAGI'),
+                    ),
+                  ],
+                ),
+              ),
+      ),
     );
   }
 }
@@ -320,16 +413,14 @@ class _LoginPageState extends State<LoginPage> {
         if (!mounted) return;
 
         try {
+          final user = Map<String, dynamic>.from(data['user'] as Map);
           // GPS wajib aktif sebelum user masuk ke halaman utama.
           await AgentGpsTrackingService.instance.startAfterLogin();
+          await ApiService.saveSession(user);
 
           if (!mounted) return;
 
-          Navigator.pushReplacementNamed(
-            context,
-            '/home',
-            arguments: Map<String, dynamic>.from(data['user'] as Map),
-          );
+          Navigator.pushReplacementNamed(context, '/home', arguments: user);
         } catch (error) {
           if (!mounted) return;
 
@@ -645,6 +736,10 @@ void _showLogoutDialog(BuildContext context) {
                                     onPressed: () async {
                                       await closeOverlay(dialogContext);
                                       if (!context.mounted) return;
+                                      await ApiService.clearSession();
+                                      await AgentGpsTrackingService.instance
+                                          .disposeTrackingStream();
+                                      if (!context.mounted) return;
                                       Navigator.pushReplacement(
                                         context,
                                         ShadcnPageRoute<void>(
@@ -709,6 +804,16 @@ class _HomePageState extends State<HomePage> {
     super.didChangeDependencies();
     if (_hasLoadedKantor) return;
     _hasLoadedKantor = true;
+
+    final arguments = ModalRoute.of(context)?.settings.arguments;
+    final agencyRole = arguments is Map
+        ? (arguments['C_AGENCY_JABATAN'] ?? '').toString().trim().toUpperCase()
+        : '';
+    if (['AD', 'AM', 'AS'].contains(agencyRole)) {
+      _isLoadingKantor = false;
+      return;
+    }
+
     _loadKantor();
   }
 
@@ -803,6 +908,10 @@ class _HomePageState extends State<HomePage> {
             .trim()
             .toUpperCase();
 
+    if (['AD', 'AM', 'AS'].contains(agencyRole)) {
+      return AgentTeamHomePage(user: Map<String, dynamic>.from(user));
+    }
+
     // const cabangList = [
     //   Cabang(
     //     nama: 'Cabang Regional Aceh',
@@ -843,6 +952,7 @@ class _HomePageState extends State<HomePage> {
         status: kantor['KET_KANTOR']?.toString() ?? '-',
       );
     }).toList();
+    final previewCabangList = cabangList.take(5).toList();
 
     return Scaffold(
       backgroundColor: const Color(0xFFEAF3FF),
@@ -1200,11 +1310,31 @@ class _HomePageState extends State<HomePage> {
 
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
-              child: Text(
-                'Daftar Cabang Perusahaan',
-                style: theme.typography.h4.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Daftar Cabang Perusahaan',
+                      style: theme.typography.h4.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  material.TextButton.icon(
+                    onPressed: () {
+                      Navigator.pushNamed(
+                        context,
+                        '/kantor-list',
+                        arguments: user,
+                      );
+                    },
+                    icon: const Icon(material.Icons.arrow_forward, size: 17),
+                    label: const Text(
+                      'Lihat semua',
+                      style: TextStyle(color: Colors.black),
+                    ),
+                  ),
+                ],
               ),
             ),
             Expanded(
@@ -1212,9 +1342,9 @@ class _HomePageState extends State<HomePage> {
                   ? const Center(child: CircularProgressIndicator())
                   : ListView.builder(
                       padding: const EdgeInsets.symmetric(horizontal: 20),
-                      itemCount: cabangList.length,
+                      itemCount: previewCabangList.length,
                       itemBuilder: (context, index) {
-                        final cabang = cabangList[index];
+                        final cabang = previewCabangList[index];
 
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 12),
