@@ -1,20 +1,17 @@
-
 import 'dart:async';
 
 import 'package:flutter/widgets.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:location/location.dart' as location_plugin;
 
-import 'api_service.dart';
+import '../services/api_service.dart';
 
 class AgentGpsTrackingService with WidgetsBindingObserver {
   AgentGpsTrackingService._();
 
-  static final AgentGpsTrackingService instance =
-      AgentGpsTrackingService._();
+  static final AgentGpsTrackingService instance = AgentGpsTrackingService._();
 
-  final location_plugin.Location _locationService =
-      location_plugin.Location();
+  final location_plugin.Location _locationService = location_plugin.Location();
 
   StreamSubscription<Position>? _positionSubscription;
   StreamSubscription<ServiceStatus>? _gpsStatusSubscription;
@@ -32,9 +29,7 @@ class AgentGpsTrackingService with WidgetsBindingObserver {
       final enabled = await _locationService.requestService();
 
       if (!enabled) {
-        await Future<void>.delayed(
-          const Duration(milliseconds: 700),
-        );
+        await Future<void>.delayed(const Duration(milliseconds: 700));
       }
     }
 
@@ -69,8 +64,15 @@ class AgentGpsTrackingService with WidgetsBindingObserver {
         ),
       );
 
-      // Mulai sesi di backend hanya satu kali.
-      await ApiService.startTracking();
+      final trackingResult = await ApiService.getTrackingStatus();
+      final trackingData = trackingResult['data'];
+      if (trackingData is! Map || trackingData['active'] is! bool) {
+        throw Exception('Format status tracking dari server tidak valid.');
+      }
+
+      if (trackingData['active'] != true) {
+        await ApiService.startTracking();
+      }
 
       _isTracking = true;
 
@@ -96,8 +98,9 @@ class AgentGpsTrackingService with WidgetsBindingObserver {
       _observerRegistered = true;
     }
 
-    _gpsStatusSubscription ??=
-        Geolocator.getServiceStatusStream().listen((status) {
+    _gpsStatusSubscription ??= Geolocator.getServiceStatusStream().listen((
+      status,
+    ) {
       if (status == ServiceStatus.disabled && _isTracking) {
         unawaited(_recoverGps());
       }
@@ -116,21 +119,22 @@ class AgentGpsTrackingService with WidgetsBindingObserver {
     await _positionSubscription?.cancel();
     _positionSubscription = null;
 
-    _positionSubscription = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 5,
-      ),
-    ).listen(
-      (position) {
-        unawaited(_sendLocation(position));
-      },
-      onError: (Object error) {
-        // Pemulihan akan dicoba saat status GPS berubah
-        // atau saat aplikasi kembali ke foreground.
-        _positionSubscription = null;
-      },
-    );
+    _positionSubscription =
+        Geolocator.getPositionStream(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            distanceFilter: 5,
+          ),
+        ).listen(
+          (position) {
+            unawaited(_sendLocation(position));
+          },
+          onError: (Object error) {
+            // Pemulihan akan dicoba saat status GPS berubah
+            // atau saat aplikasi kembali ke foreground.
+            _positionSubscription = null;
+          },
+        );
   }
 
   Future<void> _recoverGps() async {
