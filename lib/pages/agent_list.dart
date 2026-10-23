@@ -8,23 +8,10 @@ import 'package:shadcn_flutter/shadcn_flutter.dart' as shadcn;
 import 'package:geocoding/geocoding.dart';
 
 import '../services/api_service.dart';
+import '../widgets/agent_marker.dart';
 import 'agent_task.dart';
 
 const _branchMapGradientColors = [Color(0xFF0D47A1), Color(0xFF1565C0)];
-const _agentMarkerColors = [
-  Color(0xFF0284C7),
-  Color(0xFFDB2777),
-  Color(0xFF16A34A),
-  Color(0xFF9333EA),
-  Color(0xFFEA580C),
-  Color(0xFF0D9488),
-  Color(0xFFDC2626),
-  Color(0xFF4F46E5),
-  Color(0xFFCA8A04),
-  Color(0xFF64748B),
-  Color(0xFF7C3AED),
-  Color(0xFF0891B2),
-];
 const _pageStart = Color(0xFFF8FBFF);
 const _pageEnd = Color(0xFFEAF3FF);
 const _softCardShadow = BoxShadow(
@@ -107,6 +94,7 @@ class _AgentListPageState extends State<AgentListPage>
   String? _namaKantor;
   String? _alamatKantor;
   bool _isHeadMarketing = false;
+  bool _canAddTasks = true;
   double? _latitude;
   double? _longitude;
   Offset? _agentMenuTapPosition;
@@ -131,6 +119,10 @@ class _AgentListPageState extends State<AgentListPage>
           .toUpperCase();
       _isHeadMarketing =
           appRole == 'HEAD_MARKETING' || agencyRole == 'KD' || levelUser == '1';
+      _canAddTasks =
+          !_isHeadMarketing &&
+          appRole != 'HEAD_AGENT' &&
+          !['AD', 'AM', 'AS'].contains(agencyRole);
       _kantor = arguments['KODE_KANTOR']?.toString().trim();
       _namaKantor = arguments['NAMA_KANTOR']?.toString().trim();
       _alamatKantor = arguments['ALAMAT_KANTOR']?.toString().trim();
@@ -226,7 +218,7 @@ class _AgentListPageState extends State<AgentListPage>
             point: location,
             width: 52,
             height: 60,
-            child: _agentMarker(name, _agentMarkerColor(agent['NOMOR_AGEN'])),
+            child: AgentMarker(name: name, identity: agent['NOMOR_AGEN']),
           );
         })
         .whereType<flutter_map.Marker>()
@@ -375,8 +367,11 @@ class _AgentListPageState extends State<AgentListPage>
       case _AgentMenuAction.tasks:
         await Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (_) =>
-                AgentTaskPage(agent: agent, canManageTasks: !_isHeadMarketing),
+            builder: (_) => AgentTaskPage(
+              agent: agent,
+              canManageTasks: !_isHeadMarketing,
+              canAddTasks: _canAddTasks,
+            ),
           ),
         );
     }
@@ -1096,7 +1091,8 @@ class _AgentListPageState extends State<AgentListPage>
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       const Text(
                                         'Koordinat GPS',
@@ -1133,12 +1129,15 @@ class _AgentListPageState extends State<AgentListPage>
 
                                     if (!dialogContext.mounted) return;
 
-                                    ScaffoldMessenger.of(dialogContext).showSnackBar(
-                                      const SnackBar(
-                                        content: Text('Koordinat berhasil disalin.'),
-                                        duration: Duration(seconds: 2),
-                                      ),
-                                    );
+                                    ScaffoldMessenger.of(dialogContext)
+                                        .showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'Koordinat berhasil disalin.',
+                                            ),
+                                            duration: Duration(seconds: 2),
+                                          ),
+                                        );
                                   },
                                   icon: const Icon(
                                     Icons.copy_rounded,
@@ -1317,59 +1316,6 @@ class _AgentListPageState extends State<AgentListPage>
     final name = (value ?? '').toString().trim();
     if (name.isEmpty) return '??';
     return name.characters.take(2).toString().toUpperCase();
-  }
-
-  Color _agentMarkerColor(Object? identity) {
-    final key = (identity ?? '').toString().trim().toUpperCase();
-    if (key.isEmpty) return _agentMarkerColors[0];
-
-    var hash = 0;
-    for (final codeUnit in key.codeUnits) {
-      hash = (hash * 31 + codeUnit) & 0x7FFFFFFF;
-    }
-    return _agentMarkerColors[hash % _agentMarkerColors.length];
-  }
-
-  Widget _agentMarker(String name, Color color) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 40,
-          height: 40,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white, width: 2.5),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x40000000),
-                blurRadius: 5,
-                offset: Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Text(
-            _agentInitials(name),
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-              fontSize: 15,
-            ),
-          ),
-        ),
-        Container(
-          width: 6,
-          height: 6,
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white, width: 1),
-          ),
-        ),
-      ],
-    );
   }
 
   Future<void> _loadAgents({bool showLoading = true}) async {
@@ -1728,10 +1674,9 @@ class _AgentListPageState extends State<AgentListPage>
   Widget _buildAgentCard(Map<String, dynamic> agent) {
     final name = (agent['NAMA_AGEN'] ?? '-').toString();
     final agentNumber = (agent['NOMOR_AGEN'] ?? '-').toString();
-    final kantor = (agent['NAMA_KANTOR'] ?? agent['KODE_KANTOR'] ?? '-')
-        .toString();
     final tracking = agent['isTracking'] == true;
-    final markerColor = _agentMarkerColor(agentNumber);
+    final role = (agent['C_AGENCY_JABATAN'] ?? '-').toString();
+    final phone = (agent['NOMOR_HP'] ?? '').toString().trim();
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
@@ -1760,35 +1705,37 @@ class _AgentListPageState extends State<AgentListPage>
             minVerticalPadding: 12,
             titleAlignment: ListTileTitleAlignment.center,
             leading: SizedBox(
-              width: 44,
+              width: 48,
               height: 56,
-              child: Center(child: _agentMarker(name, markerColor)),
+              child: Center(
+                child: AgentMarker(
+                  name: name,
+                  identity: agentNumber,
+                  isOnline: tracking,
+                ),
+              ),
             ),
             title: Text(
               name,
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
-            subtitle: Text('Nomor Agen: $agentNumber\nKantor: $kantor'),
-            isThreeLine: true,
-            trailing: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.circle,
-                  size: 10,
-                  color: tracking ? Colors.green : Colors.grey,
+            subtitle: Text(
+              '${tracking ? 'Online' : 'Offline'} · ID: $agentNumber${phone.isEmpty ? '' : ' · $phone'}',
+            ),
+            trailing: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEAF3FF),
+                borderRadius: BorderRadius.circular(99),
+              ),
+              child: Text(
+                role,
+                style: const TextStyle(
+                  color: Color(0xFF1565C0),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  tracking ? 'Tracking' : 'Offline',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: tracking
-                        ? Colors.green.shade800
-                        : Colors.grey.shade700,
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         ),
