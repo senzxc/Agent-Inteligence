@@ -1,15 +1,13 @@
 import 'package:flutter/material.dart';
 
 import '../services/api_service.dart';
-import 'agent_task.dart';
+import '../services/gps_tracking_service.dart';
+import '../pages/agent_task.dart';
 
 class AgentHomePage extends StatefulWidget {
   final Map<String, dynamic> user;
 
-  const AgentHomePage({
-    super.key,
-    required this.user,
-  });
+  const AgentHomePage({super.key, required this.user});
 
   @override
   State<AgentHomePage> createState() => _AgentHomePageState();
@@ -38,19 +36,23 @@ class _AgentHomePageState extends State<AgentHomePage> {
     return fallback;
   }
 
-  String get _name => _firstValue(
-        ['NAMA_AGEN', 'NAMA', 'nama', 'NAMA_DEPAN', 'N_AGEN'],
-        fallback: 'Agen',
-      );
+  String get _name => _firstValue([
+    'NAMA_AGEN',
+    'NAMA',
+    'nama',
+    'NAMA_DEPAN',
+    'N_AGEN',
+  ], fallback: 'Agen');
 
-  String get _agentId => _firstValue(
-        ['STAMBUK', 'stambuk', 'NOMOR_AGEN', 'I_AGEN', 'nomorAgen'],
-      );
+  String get _agentId =>
+      _firstValue(['STAMBUK', 'stambuk', 'NOMOR_AGEN', 'I_AGEN', 'nomorAgen']);
 
-  String get _office => _firstValue(
-        ['NAMA_KANTOR', 'KODE_KANTOR', 'KANTOR', 'kantor'],
-        fallback: 'Kantor belum ditentukan',
-      );
+  String get _office => _firstValue([
+    'NAMA_KANTOR',
+    'KODE_KANTOR',
+    'KANTOR',
+    'kantor',
+  ], fallback: 'Kantor belum ditentukan');
 
   @override
   void initState() {
@@ -81,7 +83,7 @@ class _AgentHomePageState extends State<AgentHomePage> {
         throw Exception(
           responseData is Map
               ? responseData['message']?.toString() ??
-                  'Gagal mengambil daftar tugas.'
+                    'Gagal mengambil daftar tugas.'
               : 'Format respons server tidak sesuai.',
         );
       }
@@ -90,16 +92,14 @@ class _AgentHomePageState extends State<AgentHomePage> {
       dynamic rawTasks = payload['tasks'] ?? payload['data'];
 
       if (rawTasks is Map) {
-        rawTasks = rawTasks['tasks'] ??
-            rawTasks['items'] ??
-            rawTasks['data'];
+        rawTasks = rawTasks['tasks'] ?? rawTasks['items'] ?? rawTasks['data'];
       }
 
       final parsedTasks = rawTasks is List
           ? rawTasks
-              .whereType<Map>()
-              .map((item) => Map<String, dynamic>.from(item))
-              .toList()
+                .whereType<Map>()
+                .map((item) => Map<String, dynamic>.from(item))
+                .toList()
           : <Map<String, dynamic>>[];
 
       if (!mounted) return;
@@ -112,8 +112,7 @@ class _AgentHomePageState extends State<AgentHomePage> {
       if (!mounted) return;
 
       setState(() {
-        _errorMessage =
-            error.toString().replaceFirst('Exception: ', '');
+        _errorMessage = error.toString().replaceFirst('Exception: ', '');
         _isLoading = false;
       });
     }
@@ -131,14 +130,11 @@ class _AgentHomePageState extends State<AgentHomePage> {
   }
 
   String _title(Map<String, dynamic> task) {
-    return (task['judul'] ?? task['title'] ?? 'Tugas tanpa judul')
-        .toString();
+    return (task['judul'] ?? task['title'] ?? 'Tugas tanpa judul').toString();
   }
 
   String _description(Map<String, dynamic> task) {
-    return (task['deskripsi'] ?? task['description'] ?? '')
-        .toString()
-        .trim();
+    return (task['deskripsi'] ?? task['description'] ?? '').toString().trim();
   }
 
   String _deadline(Map<String, dynamic> task) {
@@ -150,8 +146,18 @@ class _AgentHomePageState extends State<AgentHomePage> {
     if (date == null) return raw;
 
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
-      'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'Mei',
+      'Jun',
+      'Jul',
+      'Agu',
+      'Sep',
+      'Okt',
+      'Nov',
+      'Des',
     ];
 
     return '${date.day} ${months[date.month - 1]} ${date.year}';
@@ -239,12 +245,15 @@ class _AgentHomePageState extends State<AgentHomePage> {
                             child: OutlinedButton(
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: _primary,
-                                side: const BorderSide(color: Color(0xFFBBD5F5)),
+                                side: const BorderSide(
+                                  color: Color(0xFFBBD5F5),
+                                ),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                               ),
-                              onPressed: () => Navigator.pop(dialogContext, false),
+                              onPressed: () =>
+                                  Navigator.pop(dialogContext, false),
                               child: const Text('Batal'),
                             ),
                           ),
@@ -261,7 +270,8 @@ class _AgentHomePageState extends State<AgentHomePage> {
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                               ),
-                              onPressed: () => Navigator.pop(dialogContext, true),
+                              onPressed: () =>
+                                  Navigator.pop(dialogContext, true),
                               child: const Text('Keluar'),
                             ),
                           ),
@@ -279,10 +289,11 @@ class _AgentHomePageState extends State<AgentHomePage> {
 
     if (confirmed != true || !mounted) return;
 
-    Navigator.of(context).pushNamedAndRemoveUntil(
-      '/',
-      (route) => false,
-    );
+    await ApiService.clearSession();
+    await AgentGpsTrackingService.instance.disposeTrackingStream();
+    if (!mounted) return;
+
+    Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
   }
 
   @override
@@ -305,10 +316,7 @@ class _AgentHomePageState extends State<AgentHomePage> {
           IconButton(
             tooltip: 'Keluar',
             onPressed: _confirmLogout,
-            icon: const Icon(
-              Icons.logout_rounded,
-              color: Color(0xFFDC2626),
-            ),
+            icon: const Icon(Icons.logout_rounded, color: Color(0xFFDC2626)),
           ),
           const SizedBox(width: 6),
         ],
@@ -438,16 +446,11 @@ class _AgentHomePageState extends State<AgentHomePage> {
           _welcomeInfo(Icons.business_outlined, 'Kantor: $_office'),
           const SizedBox(height: 18),
           Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 10,
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.13),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.2),
-              ),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
             ),
             child: const Row(
               children: [
@@ -478,11 +481,7 @@ class _AgentHomePageState extends State<AgentHomePage> {
   Widget _welcomeInfo(IconData icon, String text) {
     return Row(
       children: [
-        Icon(
-          icon,
-          color: Colors.white.withValues(alpha: 0.85),
-          size: 17,
-        ),
+        Icon(icon, color: Colors.white.withValues(alpha: 0.85), size: 17),
         const SizedBox(width: 8),
         Expanded(
           child: Text(
@@ -517,10 +516,7 @@ class _AgentHomePageState extends State<AgentHomePage> {
               SizedBox(height: 4),
               Text(
                 'Tugas terbaru yang kamu buat',
-                style: TextStyle(
-                  color: _textSecondary,
-                  fontSize: 12,
-                ),
+                style: TextStyle(color: _textSecondary, fontSize: 12),
               ),
             ],
           ),
@@ -530,7 +526,12 @@ class _AgentHomePageState extends State<AgentHomePage> {
           child: const Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('Lihat semua'),
+              Text(
+                'Lihat semua',
+                style: TextStyle(
+                  color: Colors.black
+                ),
+                ),
               SizedBox(width: 3),
               Icon(Icons.arrow_forward_rounded, size: 16),
             ],
@@ -544,9 +545,7 @@ class _AgentHomePageState extends State<AgentHomePage> {
     if (_isLoading) {
       return const Padding(
         padding: EdgeInsets.all(32),
-        child: Center(
-          child: CircularProgressIndicator(color: _primary),
-        ),
+        child: Center(child: CircularProgressIndicator(color: _primary)),
       );
     }
 
@@ -577,10 +576,7 @@ class _AgentHomePageState extends State<AgentHomePage> {
             Text(
               _errorMessage!,
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: _textSecondary,
-                fontSize: 12,
-              ),
+              style: const TextStyle(color: _textSecondary, fontSize: 12),
             ),
             const SizedBox(height: 12),
             OutlinedButton.icon(
@@ -595,10 +591,7 @@ class _AgentHomePageState extends State<AgentHomePage> {
 
     if (_tasks.isEmpty) {
       return Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: 22,
-          vertical: 28,
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 28),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(18),
@@ -606,11 +599,7 @@ class _AgentHomePageState extends State<AgentHomePage> {
         ),
         child: const Column(
           children: [
-            Icon(
-              Icons.assignment_outlined,
-              size: 42,
-              color: Color(0xFF94A3B8),
-            ),
+            Icon(Icons.assignment_outlined, size: 42, color: Color(0xFF94A3B8)),
             SizedBox(height: 10),
             Text(
               'Belum ada tugas',
@@ -624,10 +613,7 @@ class _AgentHomePageState extends State<AgentHomePage> {
             Text(
               'Tugas yang kamu buat akan muncul di sini.',
               textAlign: TextAlign.center,
-              style: TextStyle(
-                color: _textSecondary,
-                fontSize: 12,
-              ),
+              style: TextStyle(color: _textSecondary, fontSize: 12),
             ),
           ],
         ),
@@ -636,9 +622,7 @@ class _AgentHomePageState extends State<AgentHomePage> {
 
     final recentTasks = _tasks.take(3).toList();
 
-    return Column(
-      children: recentTasks.map(_buildTaskCard).toList(),
-    );
+    return Column(children: recentTasks.map(_buildTaskCard).toList());
   }
 
   Widget _buildTaskCard(Map<String, dynamic> task) {
@@ -778,10 +762,7 @@ class _AgentHomePageState extends State<AgentHomePage> {
               const SizedBox(width: 7),
               const Text(
                 'Tenggat',
-                style: TextStyle(
-                  color: _textSecondary,
-                  fontSize: 11,
-                ),
+                style: TextStyle(color: _textSecondary, fontSize: 11),
               ),
               const Spacer(),
               Flexible(
