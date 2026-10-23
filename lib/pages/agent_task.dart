@@ -5,11 +5,13 @@ import '../services/api_service.dart';
 class AgentTaskPage extends StatefulWidget {
   final Map<String, dynamic> agent;
   final bool canManageTasks;
+  final bool canAddTasks;
 
   const AgentTaskPage({
     super.key,
     required this.agent,
     this.canManageTasks = true,
+    this.canAddTasks = true,
   });
 
   @override
@@ -972,7 +974,7 @@ class _AgentTaskPageState extends State<AgentTaskPage> {
           const SizedBox(width: 6),
         ],
       ),
-      floatingActionButton: widget.canManageTasks
+      floatingActionButton: widget.canManageTasks && widget.canAddTasks
           ? FloatingActionButton.extended(
               onPressed: _showAddTaskDialog,
               backgroundColor: _primary,
