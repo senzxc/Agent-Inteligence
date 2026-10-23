@@ -1,12 +1,15 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
   static const String baseUrl = 'http://163.128.212.19:5003';
+  static const String _tokenKey = 'auth_token';
+  static const String _userKey = 'auth_user';
 
-  // Token disimpan selama aplikasi berjalan.
   static String? _token;
+  static bool get hasSession => _token != null;
 
   static Map<String, String> get _authHeaders => {
     'Content-Type': 'application/json',
@@ -34,6 +37,89 @@ class ApiService {
     }
 
     return {'statusCode': response.statusCode, 'data': data};
+  }
+
+  static Future<void> saveSession(Map<String, dynamic> user) async {
+    final token = _token;
+    if (token == null || token.isEmpty) {
+      throw Exception('Token login tidak tersedia untuk disimpan.');
+    }
+
+    final preferences = await SharedPreferences.getInstance();
+    final userSaved = await preferences.setString(_userKey, jsonEncode(user));
+    final tokenSaved = await preferences.setString(_tokenKey, token);
+    if (!userSaved || !tokenSaved) {
+      await clearSession();
+      throw Exception('Sesi login tidak dapat disimpan di perangkat.');
+    }
+  }
+
+  static Future<Map<String, dynamic>?> restoreSession() async {
+    final preferences = await SharedPreferences.getInstance();
+    final token = preferences.getString(_tokenKey);
+    final encodedUser = preferences.getString(_userKey);
+
+    if (token == null || token.isEmpty || encodedUser == null) {
+      if (token != null || encodedUser != null) {
+        await clearSession();
+      }
+      return null;
+    }
+
+    try {
+      final decodedUser = jsonDecode(encodedUser);
+      if (decodedUser is! Map) {
+        throw const FormatException('Format data sesi tidak valid.');
+      }
+
+      _token = token;
+      return Map<String, dynamic>.from(decodedUser);
+    } on FormatException {
+      await clearSession();
+      return null;
+    }
+  }
+
+  static Future<void> clearSession() async {
+    _token = null;
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.remove(_tokenKey);
+    await preferences.remove(_userKey);
+  }
+
+  static Future<Map<String, dynamic>> getCurrentUser() async {
+    if (_token == null) {
+      throw Exception('Token belum tersedia. Silakan login ulang.');
+    }
+
+    final response = await http.get(
+      Uri.parse('$baseUrl/api/auth/me'),
+      headers: _authHeaders,
+    );
+
+    final Object? decoded = jsonDecode(response.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw Exception('Format respons sesi tidak valid.');
+    }
+
+    if (response.statusCode == 401) {
+      await clearSession();
+    }
+
+    if (response.statusCode < 200 ||
+        response.statusCode >= 300 ||
+        decoded['success'] != true) {
+      throw Exception(
+        decoded['message']?.toString() ?? 'Sesi login tidak dapat divalidasi.',
+      );
+    }
+
+    final user = decoded['user'];
+    if (user is! Map) {
+      throw Exception('Data pengguna pada sesi tidak valid.');
+    }
+
+    return Map<String, dynamic>.from(user);
   }
 
   static Future<Map<String, dynamic>> getKantor() async {
@@ -80,10 +166,7 @@ class ApiService {
         break;
 
       case 'DELETE':
-        response = await http.delete(
-          uri,
-          headers: headers,
-        );
+        response = await http.delete(uri, headers: headers);
         break;
       default:
         throw Exception('Method API tidak didukung.');
@@ -168,9 +251,7 @@ class ApiService {
   // ========================================
 
   // Mengambil daftar tugas milik agen.
-  static Future<Map<String, dynamic>> getAgentTasks(
-    String agentId,
-  ) {
+  static Future<Map<String, dynamic>> getAgentTasks(String agentId) {
     return _trackingRequest(
       'GET',
       '/api/agents/${Uri.encodeComponent(agentId)}/tasks',
@@ -187,11 +268,7 @@ class ApiService {
     return _trackingRequest(
       'POST',
       '/api/agents/${Uri.encodeComponent(agentId)}/tasks',
-      body: {
-        'judul': judul,
-        'deskripsi': deskripsi,
-        'tenggat': tenggat,
-      },
+      body: {'judul': judul, 'deskripsi': deskripsi, 'tenggat': tenggat},
     );
   }
 
@@ -203,16 +280,12 @@ class ApiService {
     return _trackingRequest(
       'PATCH',
       '/api/tasks/${Uri.encodeComponent(taskId)}/status',
-      body: {
-        'status': status,
-      },
+      body: {'status': status},
     );
   }
 
   // Menghapus tugas.
-  static Future<Map<String, dynamic>> deleteTask(
-    String taskId,
-  ) {
+  static Future<Map<String, dynamic>> deleteTask(String taskId) {
     return _trackingRequest(
       'DELETE',
       '/api/tasks/${Uri.encodeComponent(taskId)}',
