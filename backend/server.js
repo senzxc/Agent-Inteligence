@@ -91,6 +91,17 @@ const AGENCY_ROLE_CODES = {
     WA: 'AGENT',
 };
 
+const AGENCY_SUBORDINATE_ROLES = {
+    AD: ['AM', 'AS', 'WA'],
+    AM: ['AS', 'WA'],
+    AS: ['WA'],
+};
+
+function getAgencySubordinateRoles(agencyRole) {
+    const normalizedRole = String(agencyRole ?? '').trim().toUpperCase();
+    return AGENCY_SUBORDINATE_ROLES[normalizedRole] ?? null;
+}
+
 // Keep source job codes in the user data; this map only grants generic app access.
 function resolveAppRole(user) {
     if (user?.C_AGENCY_JABATAN != null) {
@@ -140,6 +151,28 @@ function requireLeadership(req, res, next) {
         'HEAD_MARKETING',
         'HEAD_AGENT'
     )(req, res, next);
+}
+
+function requireAgentViewer(req, res, next) {
+    const role = req.authUser?.APP_ROLE ?? resolveAppRole(req.authUser);
+    const agencyRole = String(req.authUser?.C_AGENCY_JABATAN ?? '')
+        .trim()
+        .toUpperCase();
+
+    if (
+        ['HEAD_MARKETING', 'HEAD_AGENT'].includes(role) ||
+        getAgencySubordinateRoles(agencyRole) !== null
+    ) {
+        req.authRole = role;
+        next();
+        return;
+    }
+
+    return res.status(403).json({
+        success: false,
+        message: 'Anda tidak memiliki akses untuk melihat daftar agen',
+        appRole: role,
+    });
 }
 
 // ========================================
@@ -462,6 +495,21 @@ app.get('/api/agents', authenticate, async (req, res) => {
     let connection;
 
     try {
+        const agencyRole = String(req.authUser?.C_AGENCY_JABATAN ?? '')
+            .trim()
+            .toUpperCase();
+        const subordinateRoles = getAgencySubordinateRoles(agencyRole);
+        const ownBranch = String(
+            req.authUser?.KODE_KANTOR ?? req.authUser?.KANTOR ?? ''
+        ).trim().toUpperCase();
+
+        if (subordinateRoles && !ownBranch) {
+            return res.status(403).json({
+                success: false,
+                message: 'Kode kantor akun tidak tersedia.',
+            });
+        }
+
         connection = await getConnection();
 
         const conditions = [];
@@ -488,18 +536,32 @@ app.get('/api/agents', authenticate, async (req, res) => {
             binds.search = `%${search.toUpperCase()}%`;
         }
 
-        if (jabatan) {
-            conditions.push(
-                'UPPER(b.C_AGENCY_JABATAN) = :jabatan'
-            );
-            binds.jabatan = jabatan;
-        }
+        if (subordinateRoles) {
+            conditions.push('UPPER(c.KODE_KANTOR) = :scopeKantor');
+            binds.scopeKantor = ownBranch;
 
-        if (kantor) {
+            const roleBindNames = subordinateRoles.map((role, index) => {
+                const bindName = `scopeRole${index}`;
+                binds[bindName] = role;
+                return `:${bindName}`;
+            });
             conditions.push(
-                'UPPER(c.KODE_KANTOR) = :kantor'
+                `UPPER(b.C_AGENCY_JABATAN) IN (${roleBindNames.join(', ')})`
             );
-            binds.kantor = kantor;
+        } else {
+            if (jabatan) {
+                conditions.push(
+                    'UPPER(b.C_AGENCY_JABATAN) = :jabatan'
+                );
+                binds.jabatan = jabatan;
+            }
+
+            if (kantor) {
+                conditions.push(
+                    'UPPER(c.KODE_KANTOR) = :kantor'
+                );
+                binds.kantor = kantor;
+            }
         }
 
         const whereClause = conditions.length
@@ -730,7 +792,7 @@ app.post(
 app.get(
     '/api/agent-tracking/agents',
     authenticate,
-    requireLeadership,
+    requireAgentViewer,
     (req, res) => {
         const filterKantor = req.query.kantor
             ? String(req.query.kantor).trim().toUpperCase()
@@ -738,7 +800,25 @@ app.get(
 
         let agents = Array.from(activeAgents.values());
 
-        if (req.authRole === 'HEAD_AGENT') {
+        const subordinateRoles = getAgencySubordinateRoles(
+            req.authUser?.C_AGENCY_JABATAN
+        );
+
+        if (subordinateRoles) {
+            const ownBranch = String(
+                req.authUser.KODE_KANTOR ?? req.authUser.KANTOR ?? ''
+            ).trim().toUpperCase();
+
+            agents = agents.filter(
+                agent =>
+                    String(agent.kantor ?? '')
+                        .trim()
+                        .toUpperCase() === ownBranch &&
+                    subordinateRoles.includes(
+                        String(agent.level ?? '').trim().toUpperCase()
+                    )
+            );
+        } else if (req.authRole === 'HEAD_AGENT') {
             const ownBranch = String(
                 req.authUser.KODE_KANTOR ?? req.authUser.KANTOR ?? ''
             ).trim().toUpperCase();
