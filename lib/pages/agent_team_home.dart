@@ -421,7 +421,7 @@ class _AgentTeamHomePageState extends State<AgentTeamHomePage> {
                           const SizedBox(width: 9),
                           Expanded(
                             child: Text(
-                              '${_agents.length} agen ${_showingOnlineAgents ? 'online' : 'terdaftar'}',
+                              '${_agents.length} Agen ${_showingOnlineAgents ? 'online' : 'terdaftar'}',
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 12,
@@ -465,7 +465,7 @@ class _AgentTeamHomePageState extends State<AgentTeamHomePage> {
                     ),
                   ),
                   Text(
-                    '${_agents.length} agen',
+                    '${_agents.length} Agen',
                     style: const TextStyle(
                       color: _muted,
                       fontWeight: FontWeight.w600,
@@ -542,7 +542,7 @@ class _AgentTeamHomePageState extends State<AgentTeamHomePage> {
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Text(
-                                  'Lihat pemantauan agen',
+                                  'Lihat agen selengkapnya',
                                   style: TextStyle(
                                     color: Colors.white,
                                     fontSize: 14,
