@@ -280,9 +280,11 @@ app.post('/api/login', async (req, res) => {
                 a.NAMA_DEPAN AS NAMA_AGEN,
                 a.TANGGAL_LAHIR,
                 a.TANGGAL_LISENSI,
-                a.NOMOR_HP,
+                COALESCE(a.NOMOR_HP, b.I_TELEPON_HP) AS NOMOR_HP,
+                b.I_TELEPON_HP,
                 a.ALAMAT,
-                a.EMAIL,
+                b.A_EMAIL,
+                b.A_EMAIL AS EMAIL,
                 c.KODE_KANTOR,
                 c.NAMA_KANTOR
             FROM TM_AGENCY2 b
@@ -528,8 +530,9 @@ app.get('/api/agents', authenticate, async (req, res) => {
                 (
                     UPPER(a.NAMA_DEPAN) LIKE :search
                     OR TO_CHAR(b.I_AGEN) LIKE :search
-                    OR UPPER(a.EMAIL) LIKE :search
+                    OR UPPER(b.A_EMAIL) LIKE :search
                     OR UPPER(a.NOMOR_HP) LIKE :search
+                    OR UPPER(b.I_TELEPON_HP) LIKE :search
                 )
             `);
 
@@ -575,9 +578,11 @@ app.get('/api/agents', authenticate, async (req, res) => {
                 b.I_AGEN AS NOMOR_AGEN,
                 a.TANGGAL_LAHIR,
                 a.TANGGAL_LISENSI,
-                a.NOMOR_HP,
+                COALESCE(a.NOMOR_HP, b.I_TELEPON_HP) AS NOMOR_HP,
+                b.I_TELEPON_HP,
                 a.ALAMAT,
-                a.EMAIL,
+                b.A_EMAIL,
+                b.A_EMAIL AS EMAIL,
                 b.C_AGENCY_JABATAN,
                 c.KODE_KANTOR,
                 c.NAMA_KANTOR
