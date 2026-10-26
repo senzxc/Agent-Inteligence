@@ -63,6 +63,8 @@ class _AgentTaskPageState extends State<AgentTaskPage> {
   String get _agentPhone =>
       _firstValue(['NOMOR_HP', 'I_TELEPON_HP', 'NO_HP', 'nomorHp']);
 
+  String get _agentEmail => _firstValue(['A_EMAIL', 'EMAIL', 'email']);
+
   String get _agentAddress => _firstValue([
     'ALAMAT',
     'A_RUMAH',
@@ -1078,6 +1080,8 @@ class _AgentTaskPageState extends State<AgentTaskPage> {
                 ),
                 const SizedBox(height: 12),
                 _agentInfoRow(Icons.phone_outlined, _agentPhone),
+                const SizedBox(height: 7),
+                _agentInfoRow(Icons.email_outlined, _agentEmail),
                 const SizedBox(height: 7),
                 _agentInfoRow(Icons.location_on_outlined, _agentAddress),
               ],
