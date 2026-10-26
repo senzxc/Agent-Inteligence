@@ -22,6 +22,54 @@ const _softCardShadow = BoxShadow(
 
 enum _AgentMenuAction { details, location, centerAgent, locationDetails, tasks }
 
+enum _AgentSortField { name, role }
+
+InputDecoration _filterInputDecoration({required String hint}) {
+  return InputDecoration(
+    hintText: hint,
+    filled: true,
+    fillColor: Colors.white,
+    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(14),
+      borderSide: const BorderSide(color: Color(0xFFD5E5FA)),
+    ),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(14),
+      borderSide: const BorderSide(color: Color(0xFFD5E5FA)),
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(14),
+      borderSide: const BorderSide(color: Color(0xFF1565C0), width: 2),
+    ),
+  );
+}
+
+class _FilterSectionLabel extends StatelessWidget {
+  const _FilterSectionLabel({required this.icon, required this.title});
+
+  final IconData icon;
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, color: const Color(0xFF1565C0), size: 18),
+        const SizedBox(width: 8),
+        Text(
+          title,
+          style: const TextStyle(
+            color: Color(0xFF1E293B),
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _AgentMenuItem extends StatelessWidget {
   const _AgentMenuItem({
     required this.icon,
@@ -79,6 +127,8 @@ class AgentListPage extends StatefulWidget {
 class _AgentListPageState extends State<AgentListPage>
     with SingleTickerProviderStateMixin {
   final flutter_map.MapController _mapController = flutter_map.MapController();
+  final ScrollController _pageScrollController = ScrollController();
+  final TextEditingController _agentSearchController = TextEditingController();
   late final AnimationController _centerAnimationController;
   LatLng? _animationStartCenter;
   LatLng? _animationTargetCenter;
@@ -99,6 +149,55 @@ class _AgentListPageState extends State<AgentListPage>
   double? _longitude;
   Offset? _agentMenuTapPosition;
   bool _initialized = false;
+  bool _showAgentSearch = false;
+  String _selectedAgentRole = '';
+  _AgentSortField _agentSortField = _AgentSortField.name;
+  bool _sortAscending = true;
+
+  List<Map<String, dynamic>> get _visibleAgents {
+    final query = _agentSearchController.text.trim().toLowerCase();
+    final agents = _agents.where((agent) {
+      final role = (agent['C_AGENCY_JABATAN'] ?? '')
+          .toString()
+          .trim()
+          .toUpperCase();
+      if (_selectedAgentRole.isNotEmpty && role != _selectedAgentRole) {
+        return false;
+      }
+
+      if (query.isEmpty) return true;
+      return [
+        agent['NAMA_AGEN'],
+        agent['NOMOR_AGEN'],
+        agent['NOMOR_HP'],
+        agent['A_EMAIL'] ?? agent['EMAIL'],
+        agent['C_AGENCY_JABATAN'],
+      ].any((value) => (value ?? '').toString().toLowerCase().contains(query));
+    }).toList();
+
+    agents.sort((left, right) {
+      final leftOnline = left['isTracking'] == true;
+      final rightOnline = right['isTracking'] == true;
+      if (leftOnline != rightOnline) return leftOnline ? -1 : 1;
+
+      final leftValue = _agentSortField == _AgentSortField.name
+          ? left['NAMA_AGEN']
+          : left['C_AGENCY_JABATAN'];
+      final rightValue = _agentSortField == _AgentSortField.name
+          ? right['NAMA_AGEN']
+          : right['C_AGENCY_JABATAN'];
+      final comparison = (leftValue ?? '').toString().toLowerCase().compareTo(
+        (rightValue ?? '').toString().toLowerCase(),
+      );
+      if (comparison == 0) {
+        return (left['NAMA_AGEN'] ?? '').toString().toLowerCase().compareTo(
+          (right['NAMA_AGEN'] ?? '').toString().toLowerCase(),
+        );
+      }
+      return _sortAscending ? comparison : -comparison;
+    });
+    return agents;
+  }
 
   @override
   void didChangeDependencies() {
@@ -177,10 +276,22 @@ class _AgentListPageState extends State<AgentListPage>
     final longitude = _longitude;
     return latitude != null &&
         longitude != null &&
+        !(latitude == 0 && longitude == 0) &&
         latitude >= -90 &&
         latitude <= 90 &&
         longitude >= -180 &&
         longitude <= 180;
+  }
+
+  LatLng get _initialMapCenter {
+    if (_hasValidCoordinates) return LatLng(_latitude!, _longitude!);
+
+    for (final agent in _agents) {
+      final location = _agentCoordinates(agent);
+      if (location != null) return location;
+    }
+
+    return const LatLng(-2.5, 118);
   }
 
   void _recenterMap() {
@@ -360,7 +471,7 @@ class _AgentListPageState extends State<AgentListPage>
       case _AgentMenuAction.location:
         break;
       case _AgentMenuAction.centerAgent:
-        _showAgentLocation(agent);
+        await _showAgentLocation(agent);
       case _AgentMenuAction.locationDetails:
         await _showAgentLocationDetails(agent);
         break;
@@ -448,7 +559,7 @@ class _AgentListPageState extends State<AgentListPage>
 
     switch (action) {
       case _AgentMenuAction.centerAgent:
-        _showAgentLocation(agent);
+        await _showAgentLocation(agent);
       case _AgentMenuAction.locationDetails:
         await _showAgentLocationDetails(agent);
       case _AgentMenuAction.details:
@@ -461,11 +572,16 @@ class _AgentListPageState extends State<AgentListPage>
   Future<void> _showAgentDetails(Map<String, dynamic> agent) {
     final name = (agent['NAMA_AGEN'] ?? '-').toString();
     final agentNumber = (agent['NOMOR_AGEN'] ?? '-').toString();
-    final kantor = (agent['NAMA_KANTOR'] ?? agent['KODE_KANTOR'] ?? '-')
-        .toString();
+    final namaKantor = (agent['NAMA_KANTOR'] ?? '').toString().trim();
+    final kodeKantor = (agent['KODE_KANTOR'] ?? '').toString().trim();
+    final kantor = namaKantor.isNotEmpty
+        ? (kodeKantor.isNotEmpty ? '$namaKantor - ($kodeKantor)' : namaKantor)
+        : (kodeKantor.isNotEmpty ? kodeKantor : '-');
     final tracking = agent['isTracking'] == true;
     final alamat = (agent['ALAMAT'] ?? 'Belum tersedia').toString().trim();
-    final email = (agent['EMAIL'] ?? 'Belum tersedia').toString().trim();
+    final email = (agent['A_EMAIL'] ?? agent['EMAIL'] ?? 'Belum tersedia')
+        .toString()
+        .trim();
     final phone = (agent['NOMOR_HP'] ?? 'Belum tersedia').toString().trim();
     final jabatan = (agent['C_AGENCY_JABATAN'] ?? 'Belum tersedia')
         .toString()
@@ -650,11 +766,11 @@ class _AgentListPageState extends State<AgentListPage>
                           label: 'Tanggal Lahir',
                           value: tanggalLahir,
                         ),
-                        _agentDetailTile(
-                          icon: Icons.verified_outlined,
-                          label: 'Tanggal Lisensi',
-                          value: tanggalLisensi,
-                        ),
+                        // _agentDetailTile(
+                        //   icon: Icons.verified_outlined,
+                        //   label: 'Tanggal Lisensi',
+                        //   value: tanggalLisensi,
+                        // ),
                       ],
                     ),
                   ),
@@ -1209,9 +1325,9 @@ class _AgentListPageState extends State<AgentListPage>
                             width: double.infinity,
                             height: 46,
                             child: FilledButton.icon(
-                              onPressed: () {
+                              onPressed: () async {
                                 Navigator.pop(dialogContext);
-                                _showAgentLocation(agent);
+                                await _showAgentLocation(agent);
                               },
                               icon: const Icon(Icons.map_outlined),
                               label: const Text('Lihat di Peta'),
@@ -1293,7 +1409,7 @@ class _AgentListPageState extends State<AgentListPage>
     );
   }
 
-  void _showAgentLocation(Map<String, dynamic> agent) {
+  Future<void> _showAgentLocation(Map<String, dynamic> agent) async {
     final location = _agentCoordinates(agent);
     if (location == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1305,6 +1421,15 @@ class _AgentListPageState extends State<AgentListPage>
       );
       return;
     }
+
+    if (_pageScrollController.hasClients) {
+      await _pageScrollController.animateTo(
+        0,
+        duration: const Duration(milliseconds: 450),
+        curve: Curves.easeInOutCubic,
+      );
+    }
+    if (!mounted) return;
 
     _animationStartCenter = _mapController.camera.center;
     _animationTargetCenter = location;
@@ -1396,7 +1521,6 @@ class _AgentListPageState extends State<AgentListPage>
           'isTracking': tracking != null,
         };
       }).toList();
-
       if (!mounted) return;
 
       setState(() {
@@ -1422,9 +1546,289 @@ class _AgentListPageState extends State<AgentListPage>
     }
   }
 
+  Future<void> _showAgentFilters() async {
+    var selectedRole = _selectedAgentRole;
+    var sortField = _agentSortField;
+    var ascending = _sortAscending;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => SafeArea(
+          top: false,
+          child: Container(
+            margin: const EdgeInsets.only(top: 36),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+            ),
+            child: ClipRRect(
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(28),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(22, 20, 22, 22),
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [Color(0xFF0D47A1), Color(0xFF1B72D7)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 46,
+                          height: 46,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.16),
+                            borderRadius: BorderRadius.circular(15),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.25),
+                            ),
+                          ),
+                          child: const Icon(
+                            Icons.tune_rounded,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Filter dan urutkan',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 19,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              SizedBox(height: 4),
+                              Text(
+                                'Atur daftar agen sesuai kebutuhan',
+                                style: TextStyle(
+                                  color: Color(0xFFDCEBFF),
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Tutup',
+                          onPressed: () => Navigator.pop(sheetContext),
+                          icon: const Icon(
+                            Icons.close_rounded,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Flexible(
+                    child: SingleChildScrollView(
+                      padding: EdgeInsets.fromLTRB(
+                        20,
+                        20,
+                        20,
+                        20 + MediaQuery.viewInsetsOf(context).bottom,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const _FilterSectionLabel(
+                            icon: Icons.work_outline_rounded,
+                            title: 'Jabatan agen',
+                          ),
+                          const SizedBox(height: 9),
+                          DropdownButtonFormField<String>(
+                            initialValue: selectedRole,
+                            decoration: _filterInputDecoration(
+                              hint: 'Pilih jabatan',
+                            ),
+                            icon: const Icon(
+                              Icons.keyboard_arrow_down_rounded,
+                              color: Color(0xFF1565C0),
+                            ),
+                            items: const [
+                              DropdownMenuItem(
+                                value: '',
+                                child: Text('Semua jabatan'),
+                              ),
+                              DropdownMenuItem(value: 'AD', child: Text('AD')),
+                              DropdownMenuItem(value: 'AM', child: Text('AM')),
+                              DropdownMenuItem(value: 'AS', child: Text('AS')),
+                              DropdownMenuItem(value: 'WA', child: Text('WA')),
+                            ],
+                            onChanged: (value) =>
+                                setSheetState(() => selectedRole = value ?? ''),
+                          ),
+                          const SizedBox(height: 20),
+                          const _FilterSectionLabel(
+                            icon: Icons.sort_by_alpha_rounded,
+                            title: 'Urutkan daftar',
+                          ),
+                          const SizedBox(height: 9),
+                          DropdownButtonFormField<_AgentSortField>(
+                            initialValue: sortField,
+                            decoration: _filterInputDecoration(
+                              hint: 'Urutkan berdasarkan',
+                            ),
+                            icon: const Icon(
+                              Icons.keyboard_arrow_down_rounded,
+                              color: Color(0xFF1565C0),
+                            ),
+                            items: const [
+                              DropdownMenuItem(
+                                value: _AgentSortField.name,
+                                child: Text('Nama agen'),
+                              ),
+                              DropdownMenuItem(
+                                value: _AgentSortField.role,
+                                child: Text('Jabatan'),
+                              ),
+                            ],
+                            onChanged: (value) => setSheetState(
+                              () => sortField = value ?? _AgentSortField.name,
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          const _FilterSectionLabel(
+                            icon: Icons.swap_vert_rounded,
+                            title: 'Urutan abjad',
+                          ),
+                          const SizedBox(height: 9),
+                          SegmentedButton<bool>(
+                            style: ButtonStyle(
+                              backgroundColor: WidgetStateProperty.resolveWith(
+                                (states) =>
+                                    states.contains(WidgetState.selected)
+                                    ? const Color(0xFFEAF3FF)
+                                    : Colors.white,
+                              ),
+                              foregroundColor: WidgetStateProperty.resolveWith(
+                                (states) =>
+                                    states.contains(WidgetState.selected)
+                                    ? const Color(0xFF0D47A1)
+                                    : const Color(0xFF64748B),
+                              ),
+                              side: WidgetStateProperty.all(
+                                const BorderSide(color: Color(0xFFD5E5FA)),
+                              ),
+                            ),
+                            segments: const [
+                              ButtonSegment(
+                                value: true,
+                                icon: Icon(Icons.arrow_upward_rounded),
+                                label: Text('Ascending'),
+                              ),
+                              ButtonSegment(
+                                value: false,
+                                icon: Icon(Icons.arrow_downward_rounded),
+                                label: Text('Descending'),
+                              ),
+                            ],
+                            selected: {ascending},
+                            onSelectionChanged: (selection) => setSheetState(
+                              () => ascending = selection.first,
+                            ),
+                          ),
+                          const SizedBox(height: 24),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: () {
+                                    setState(() {
+                                      _selectedAgentRole = '';
+                                      _agentSortField = _AgentSortField.name;
+                                      _sortAscending = true;
+                                      _agentSearchController.clear();
+                                      _showAgentSearch = false;
+                                    });
+                                    Navigator.pop(sheetContext);
+                                  },
+                                  icon: const Icon(Icons.restart_alt_rounded),
+                                  label: const Text('Reset'),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: const Color(0xFF1565C0),
+                                    side: const BorderSide(
+                                      color: Color(0xFF9FC5F8),
+                                    ),
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 19,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    gradient: const LinearGradient(
+                                      colors: [
+                                        Color(0xFF0D47A1),
+                                        Color(0xFF1B72D7),
+                                      ],
+                                    ),
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  child: FilledButton.icon(
+                                    onPressed: () {
+                                      setState(() {
+                                        _selectedAgentRole = selectedRole;
+                                        _agentSortField = sortField;
+                                        _sortAscending = ascending;
+                                      });
+                                      Navigator.pop(sheetContext);
+                                    },
+                                    icon: const Icon(Icons.check_rounded),
+                                    label: const Text('Terapkan'),
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: Colors.transparent,
+                                      foregroundColor: Colors.white,
+                                      shadowColor: Colors.transparent,
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 18,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(14),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _agentRefreshTimer?.cancel();
+    _agentSearchController.dispose();
+    _pageScrollController.dispose();
     _centerAnimationController.dispose();
     _mapController.dispose();
     super.dispose();
@@ -1485,85 +1889,76 @@ class _AgentListPageState extends State<AgentListPage>
             borderRadius: BorderRadius.circular(16),
             child: SizedBox(
               height: 280,
-              child: _hasValidCoordinates
-                  ? Stack(
-                      children: [
-                        flutter_map.FlutterMap(
-                          mapController: _mapController,
-                          options: flutter_map.MapOptions(
-                            initialCenter: LatLng(_latitude!, _longitude!),
-                            initialZoom: 15,
-                          ),
-                          children: [
-                            flutter_map.TileLayer(
-                              urlTemplate: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
-                              userAgentPackageName:
-                                  'com.devasatrio.bi_cabang_tracker',
-                            ),
-                            flutter_map.MarkerLayer(
-                              markers: [
-                                flutter_map.Marker(
-                                  point: LatLng(_latitude!, _longitude!),
-                                  width: 50,
-                                  height: 50,
-                                  child: Container(
-                                    decoration: BoxDecoration(
-                                      gradient: const LinearGradient(
-                                        colors: _branchMapGradientColors,
-                                        begin: Alignment.centerLeft,
-                                        end: Alignment.centerRight,
-                                      ),
-                                      shape: BoxShape.circle,
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: const Color(0xFF1565C0)
-                                              .withValues(alpha: 0.35),
-                                          blurRadius: 15,
-                                          spreadRadius: 3,
-                                        ),
-                                      ],
-                                    ),
-                                    child: const Icon(
-                                      shadcn.LucideIcons.mapPin,
-                                      color: Colors.white,
-                                      size: 28,
-                                    ),
+              child: Stack(
+                children: [
+                  flutter_map.FlutterMap(
+                    mapController: _mapController,
+                    options: flutter_map.MapOptions(
+                      initialCenter: _initialMapCenter,
+                      initialZoom: _hasValidCoordinates ? 15 : 12,
+                    ),
+                    children: [
+                      flutter_map.TileLayer(
+                        urlTemplate: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+                        userAgentPackageName:
+                            'com.devasatrio.bi_cabang_tracker',
+                      ),
+                      flutter_map.MarkerLayer(
+                        markers: [
+                          if (_hasValidCoordinates)
+                            flutter_map.Marker(
+                              point: LatLng(_latitude!, _longitude!),
+                              width: 50,
+                              height: 50,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(
+                                    colors: _branchMapGradientColors,
+                                    begin: Alignment.centerLeft,
+                                    end: Alignment.centerRight,
                                   ),
+                                  shape: BoxShape.circle,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(0xFF1565C0)
+                                          .withValues(alpha: 0.35),
+                                      blurRadius: 15,
+                                      spreadRadius: 3,
+                                    ),
+                                  ],
                                 ),
-                                ..._agentMarkers(),
-                              ],
-                            ),
-                          ],
-                        ),
-                        Positioned(
-                          right: 12,
-                          bottom: 12,
-                          child: Material(
-                            color: Colors.white,
-                            elevation: 4,
-                            shape: const CircleBorder(),
-                            child: IconButton(
-                              tooltip: 'Pusatkan ke lokasi kantor',
-                              onPressed: _recenterMap,
-                              icon: const Icon(
-                                Icons.my_location_rounded,
-                                color: Color(0xFF0D47A1),
+                                child: const Icon(
+                                  shadcn.LucideIcons.mapPin,
+                                  color: Colors.white,
+                                  size: 28,
+                                ),
                               ),
                             ),
+                          ..._agentMarkers(),
+                        ],
+                      ),
+                    ],
+                  ),
+                  if (_hasValidCoordinates)
+                    Positioned(
+                      right: 12,
+                      bottom: 12,
+                      child: Material(
+                        color: Colors.white,
+                        elevation: 4,
+                        shape: const CircleBorder(),
+                        child: IconButton(
+                          tooltip: 'Pusatkan ke lokasi kantor',
+                          onPressed: _recenterMap,
+                          icon: const Icon(
+                            Icons.my_location_rounded,
+                            color: Color(0xFF0D47A1),
                           ),
                         ),
-                      ],
-                    )
-                  : Container(
-                      color: const Color(0xFFEAF3FF),
-                      alignment: Alignment.center,
-                      padding: const EdgeInsets.all(20),
-                      child: const Text(
-                        'Koordinat lokasi kantor belum tersedia.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Color(0xFF475569)),
                       ),
                     ),
+                ],
+              ),
             ),
           ),
         ],
@@ -1573,6 +1968,8 @@ class _AgentListPageState extends State<AgentListPage>
 
   @override
   Widget build(BuildContext context) {
+    final visibleAgents = _visibleAgents;
+
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.white,
@@ -1615,19 +2012,100 @@ class _AgentListPageState extends State<AgentListPage>
                   ),
                 ),
                 child: ListView(
+                  controller: _pageScrollController,
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.all(16),
                   children: [
                     _buildBranchHero(),
                     const SizedBox(height: 20),
-                    const Text(
-                      'Daftar Agen',
-                      style: TextStyle(
-                        color: Color(0xFF14264D),
-                        fontSize: 20,
-                        fontWeight: FontWeight.w700,
-                      ),
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Daftar Agen',
+                            style: TextStyle(
+                              color: Color(0xFF14264D),
+                              fontSize: 20,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: _showAgentSearch
+                              ? 'Tutup pencarian'
+                              : 'Cari agen',
+                          onPressed: () {
+                            setState(() {
+                              _showAgentSearch = !_showAgentSearch;
+                              if (!_showAgentSearch) {
+                                _agentSearchController.clear();
+                              }
+                            });
+                          },
+                          icon: Icon(
+                            _showAgentSearch
+                                ? Icons.close_rounded
+                                : Icons.search_rounded,
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Filter dan urutkan',
+                          onPressed: _showAgentFilters,
+                          icon: Icon(
+                            Icons.tune_rounded,
+                            color:
+                                _selectedAgentRole.isNotEmpty ||
+                                    _agentSortField != _AgentSortField.name ||
+                                    !_sortAscending
+                                ? const Color(0xFF1565C0)
+                                : null,
+                          ),
+                        ),
+                      ],
                     ),
+                    if (_showAgentSearch) ...[
+                      const SizedBox(height: 4),
+                      TextField(
+                        controller: _agentSearchController,
+                        onChanged: (_) => setState(() {}),
+                        textInputAction: TextInputAction.search,
+                        decoration: InputDecoration(
+                          hintText: 'Cari nama, ID, nomor telepon, email...',
+                          prefixIcon: const Icon(Icons.search_rounded),
+                          suffixIcon: _agentSearchController.text.isEmpty
+                              ? null
+                              : IconButton(
+                                  tooltip: 'Hapus pencarian',
+                                  onPressed: () {
+                                    _agentSearchController.clear();
+                                    setState(() {});
+                                  },
+                                  icon: const Icon(Icons.clear_rounded),
+                                ),
+                          filled: true,
+                          fillColor: Colors.white,
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: const BorderSide(
+                              color: Color(0xFF1565C0),
+                              width: 2,
+                            ),
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: const BorderSide(
+                              color: Color(0xFFD5E5FA),
+                            ),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: const BorderSide(
+                              color: Color(0xFFD5E5FA),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 10),
                     if (_loading)
                       const Padding(
@@ -1659,10 +2137,21 @@ class _AgentListPageState extends State<AgentListPage>
                         padding: EdgeInsets.symmetric(vertical: 24),
                         child: Center(child: Text('Belum ada data agen.')),
                       )
+                    else if (visibleAgents.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 24),
+                        child: Center(
+                          child: Text(
+                            'Tidak ada agen yang cocok dengan pencarian atau filter.',
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      )
                     else
-                      for (final agent in _agents) ...[
+                      for (final agent in visibleAgents) ...[
                         _buildAgentCard(agent),
-                        if (agent != _agents.last) const SizedBox(height: 8),
+                        if (agent != visibleAgents.last)
+                          const SizedBox(height: 8),
                       ],
                   ],
                 ),
@@ -1719,8 +2208,40 @@ class _AgentListPageState extends State<AgentListPage>
               name,
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
-            subtitle: Text(
-              '${tracking ? 'Online' : 'Offline'} · ID: $agentNumber${phone.isEmpty ? '' : ' · $phone'}',
+            subtitle: Text.rich(
+              TextSpan(
+                children: [
+                  WidgetSpan(
+                    alignment: PlaceholderAlignment.middle,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 7,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: tracking
+                            ? const Color(0xFFDCFCE7)
+                            : const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(99),
+                      ),
+                      child: Text(
+                        tracking ? 'Online' : 'Offline',
+                        style: TextStyle(
+                          color: tracking
+                              ? const Color(0xFF15803D)
+                              : const Color(0xFF64748B),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+                  TextSpan(
+                    text:
+                        ' · ID: $agentNumber${phone.isEmpty ? '' : ' · $phone'}',
+                  ),
+                ],
+              ),
             ),
             trailing: Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
