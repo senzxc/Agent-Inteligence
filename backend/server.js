@@ -278,7 +278,7 @@ app.post('/api/login', async (req, res) => {
                 b.I_AGEN,
                 b.C_AGENCY_JABATAN,
                 a.NAMA_DEPAN AS NAMA_AGEN,
-                a.TANGGAL_LAHIR,
+                b.D_LAHIR AS TANGGAL_LAHIR,
                 a.TANGGAL_LISENSI,
                 COALESCE(a.NOMOR_HP, b.I_TELEPON_HP) AS NOMOR_HP,
                 b.I_TELEPON_HP,
@@ -576,7 +576,7 @@ app.get('/api/agents', authenticate, async (req, res) => {
             SELECT
                 a.NAMA_DEPAN AS NAMA_AGEN,
                 b.I_AGEN AS NOMOR_AGEN,
-                a.TANGGAL_LAHIR,
+                b.D_LAHIR AS TANGGAL_LAHIR,
                 a.TANGGAL_LISENSI,
                 COALESCE(a.NOMOR_HP, b.I_TELEPON_HP) AS NOMOR_HP,
                 b.I_TELEPON_HP,
