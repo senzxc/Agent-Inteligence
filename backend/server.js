@@ -520,7 +520,7 @@ app.get('/api/agents', authenticate, async (req, res) => {
 
         connection = await getConnection();
 
-        const conditions = [];
+        const conditions = ['a.STATUS = 1'];
         const binds = {};
 
         const search = String(req.query.search ?? '').trim();
@@ -546,7 +546,7 @@ app.get('/api/agents', authenticate, async (req, res) => {
         }
 
         if (subordinateRoles) {
-            conditions.push('UPPER(c.KODE_KANTOR) = :scopeKantor');
+            conditions.push('UPPER(TRIM(c.KODE_KANTOR)) = :scopeKantor');
             binds.scopeKantor = ownBranch;
 
             const roleBindNames = subordinateRoles.map((role, index) => {
@@ -567,7 +567,7 @@ app.get('/api/agents', authenticate, async (req, res) => {
 
             if (kantor) {
                 conditions.push(
-                    'UPPER(c.KODE_KANTOR) = :kantor'
+                    'UPPER(TRIM(c.KODE_KANTOR)) = :kantor'
                 );
                 binds.kantor = kantor;
             }
@@ -601,7 +601,6 @@ app.get('/api/agents', authenticate, async (req, res) => {
                 ON a.NOMOR_AGEN = b.I_AGEN
             INNER JOIN DAFTAR_KANTOR c
                 ON a.NOMOR_KANTOR = c.NOMOR_KANTOR
-                AND a.STATUS = 1
             ${whereClause}
             ORDER BY a.NAMA_DEPAN ASC
             `,
