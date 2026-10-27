@@ -600,6 +600,8 @@ app.get('/api/agents', authenticate, async (req, res) => {
                 ON a.NOMOR_AGEN = b.I_AGEN
             INNER JOIN DAFTAR_KANTOR c
                 ON a.NOMOR_KANTOR = c.NOMOR_KANTOR
+                AND c.NAMA_KANTOR = '%SYARIAH%'
+                AND a.STATUS = 1
             ${whereClause}
             ORDER BY a.NAMA_DEPAN ASC
             `,
