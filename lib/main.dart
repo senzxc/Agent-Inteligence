@@ -16,6 +16,7 @@ import 'pages/agent_team_home.dart';
 import 'pages/kantor_list.dart';
 import 'services/api_service.dart';
 import 'services/gps_tracking_service.dart';
+import 'utils/kantor_type.dart';
 
 // import 'package:lottie/lottie.dart';
 
@@ -128,7 +129,7 @@ class Cabang {
   final String email;
   final double lat;
   final double lng;
-  final String status;
+  final String jenisKantor;
 
   const Cabang({
     this.kode = '',
@@ -137,7 +138,7 @@ class Cabang {
     required this.email,
     required this.lat,
     required this.lng,
-    required this.status,
+    required this.jenisKantor,
   });
 }
 
@@ -794,6 +795,12 @@ class _HomePageState extends State<HomePage> {
   List<Map<String, dynamic>> _kantorList = [];
   bool _isLoadingKantor = true;
   bool _hasLoadedKantor = false;
+  bool _isLoadingDashboardStats = true;
+  int? _totalAgentCount;
+  int? _onlineAgentCount;
+  int? _offlineAgentCount;
+  String? _dashboardStatsError;
+  String? _kantorLoadError;
   bool _isAgentTrackingHovered = false;
   bool _isAgentTrackingPressed = false;
   bool _isAgentMonitoringHovered = false;
@@ -815,6 +822,32 @@ class _HomePageState extends State<HomePage> {
     }
 
     _loadKantor();
+
+    final levelUser = arguments is Map
+        ? (arguments['LEVEL_USER'] ?? arguments['level_user'] ?? '')
+              .toString()
+              .trim()
+        : '';
+    final appRole = arguments is Map
+        ? (arguments['APP_ROLE'] ??
+                  (agencyRole == 'KD'
+                      ? 'HEAD_MARKETING'
+                      : agencyRole == 'AD'
+                      ? 'HEAD_AGENT'
+                      : levelUser == '1'
+                      ? 'HEAD_MARKETING'
+                      : levelUser == '2'
+                      ? 'HEAD_AGENT'
+                      : ''))
+              .toString()
+              .trim()
+              .toUpperCase()
+        : '';
+    if (appRole == 'HEAD_MARKETING' || appRole == 'HEAD_AGENT') {
+      _loadDashboardStats();
+    } else {
+      _isLoadingDashboardStats = false;
+    }
   }
 
   Future<void> _loadKantor() async {
@@ -837,6 +870,7 @@ class _HomePageState extends State<HomePage> {
         setState(() {
           _kantorList = kantor;
           _isLoadingKantor = false;
+          _kantorLoadError = null;
         });
 
         debugPrint('Jumlah kantor: ${_kantorList.length}');
@@ -846,6 +880,9 @@ class _HomePageState extends State<HomePage> {
 
         setState(() {
           _isLoadingKantor = false;
+          _kantorLoadError = data is Map
+              ? data['message']?.toString() ?? 'Gagal memuat data kantor.'
+              : 'Format respons data kantor tidak valid.';
         });
 
         debugPrint('Gagal mengambil data kantor: ${data['message']}');
@@ -855,10 +892,202 @@ class _HomePageState extends State<HomePage> {
 
       setState(() {
         _isLoadingKantor = false;
+        _kantorLoadError = error.toString().replaceFirst('Exception: ', '');
       });
 
       debugPrint('Error get kantor: $error');
     }
+  }
+
+  Future<void> _loadDashboardStats() async {
+    if (!mounted) return;
+    if (!_isLoadingDashboardStats || _dashboardStatsError != null) {
+      setState(() {
+        _isLoadingDashboardStats = true;
+        _dashboardStatsError = null;
+      });
+    }
+
+    try {
+      final response = await ApiService.getDashboardAgentStats();
+      final responseData = response['data'];
+      if (responseData is! Map ||
+          responseData['success'] != true ||
+          responseData['data'] is! Map) {
+        throw Exception(
+          responseData is Map
+              ? responseData['message']?.toString() ??
+                    'Format respons statistik agen tidak valid.'
+              : 'Format respons statistik agen tidak valid.',
+        );
+      }
+
+      final stats = responseData['data'] as Map;
+      final totalAgents = stats['totalAgents'];
+      final onlineAgents = stats['onlineAgents'];
+      final offlineAgents = stats['offlineAgents'];
+      if (totalAgents is! num ||
+          onlineAgents is! num ||
+          offlineAgents is! num) {
+        throw Exception('Data statistik agen tidak lengkap atau tidak valid.');
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _totalAgentCount = totalAgents.toInt();
+        _onlineAgentCount = onlineAgents.toInt();
+        _offlineAgentCount = offlineAgents.toInt();
+        _isLoadingDashboardStats = false;
+        _dashboardStatsError = null;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _isLoadingDashboardStats = false;
+        _dashboardStatsError = error.toString().replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  Widget _buildDashboardStatTile({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color color,
+    required Color backgroundColor,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(17),
+        border: Border.all(color: const Color(0xFFDCE8F8)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x100F172A),
+            blurRadius: 10,
+            offset: Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: backgroundColor,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: color, size: 20),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 19,
+                    height: 1.05,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF64748B),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDashboardActionTile({
+    required String label,
+    required IconData icon,
+    required List<Color> gradientColors,
+    required bool hovered,
+    required bool pressed,
+    required ValueChanged<bool> onHoverChanged,
+    required ValueChanged<bool> onPressedChanged,
+    required VoidCallback onTap,
+  }) {
+    return MouseRegion(
+      onEnter: (_) => onHoverChanged(true),
+      onExit: (_) => onHoverChanged(false),
+      child: GestureDetector(
+        onTap: onTap,
+        onTapDown: (_) => onPressedChanged(true),
+        onTapUp: (_) => onPressedChanged(false),
+        onTapCancel: () => onPressedChanged(false),
+        child: AnimatedScale(
+          scale: pressed
+              ? 0.97
+              : hovered
+              ? 1.02
+              : 1,
+          duration: const Duration(milliseconds: 140),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: gradientColors,
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(17),
+              boxShadow: [
+                BoxShadow(
+                  color: gradientColors.first.withValues(alpha: 0.22),
+                  blurRadius: hovered ? 16 : 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Icon(icon, color: Colors.white, size: 23),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      height: 1.15,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                const Icon(
+                  LucideIcons.chevronRight,
+                  color: Colors.white,
+                  size: 17,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -949,7 +1178,7 @@ class _HomePageState extends State<HomePage> {
         email: kantor['EMAIL']?.toString() ?? '-',
         lat: (kantor['LATITUDE'] as num?)?.toDouble() ?? 0.0,
         lng: (kantor['LONGITUDE'] as num?)?.toDouble() ?? 0.0,
-        status: kantor['KET_KANTOR']?.toString() ?? '-',
+        jenisKantor: kantor['KODE_JENIS_KANTOR']?.toString() ?? '',
       );
     }).toList();
     final previewCabangList = cabangList.take(5).toList();
@@ -1031,7 +1260,8 @@ class _HomePageState extends State<HomePage> {
                               displayName,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: theme.typography.h3.copyWith(
+                              style: const TextStyle(
+                                fontSize: 20,
                                 color: Colors.white,
                                 fontWeight: FontWeight.w800,
                               ),
@@ -1113,197 +1343,147 @@ class _HomePageState extends State<HomePage> {
                       ),
                     ],
                   ),
-
-                  const SizedBox(height: 18),
-
-                  // PANEL INFORMASI
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 10,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.13),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.2),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          LucideIcons.mapPin,
-                          color: Colors.white,
-                          size: 19,
-                        ),
-                        const SizedBox(width: 9),
-                        Expanded(
-                          child: Text(
-                            '${_kantorList.length} titik cabang aktif',
-                            style: theme.typography.xSmall.copyWith(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
                 ],
               ),
             ),
 
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-              child: MouseRegion(
-                onEnter: (_) {
-                  setState(() => _isAgentTrackingHovered = true);
-                },
-                onExit: (_) {
-                  setState(() => _isAgentTrackingHovered = false);
-                },
-                child: GestureDetector(
-                  onTap: () {
-                    Navigator.pushNamed(context, '/agent-tracking');
-                  },
-                  onTapDown: (_) {
-                    setState(() => _isAgentTrackingPressed = true);
-                  },
-                  onTapUp: (_) {
-                    setState(() => _isAgentTrackingPressed = false);
-                  },
-                  onTapCancel: () {
-                    setState(() => _isAgentTrackingPressed = false);
-                  },
-                  child: AnimatedScale(
-                    scale: _isAgentTrackingPressed
-                        ? 0.98
-                        : _isAgentTrackingHovered
-                        ? 1.01
-                        : 1,
-                    duration: const Duration(milliseconds: 140),
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(15),
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: _brandGradientColors,
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(0x260D47A1),
-                            blurRadius: _isAgentTrackingHovered ? 20 : 14,
-                            offset: const Offset(0, 6),
-                          ),
-                        ],
-                      ),
-                      child: const Row(
-                        children: [
-                          Icon(
-                            LucideIcons.mapPin,
-                            color: Colors.white,
-                            size: 24,
-                          ),
-                          SizedBox(width: 16),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Mulai Bertugas Agen',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 16,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Icon(LucideIcons.chevronRight, color: Colors.white),
-                        ],
-                      ),
-                    ),
+              child: GridView.count(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                crossAxisCount: 2,
+                crossAxisSpacing: 10,
+                mainAxisSpacing: 10,
+                childAspectRatio: 3.00,
+                children: [
+                  _buildDashboardStatTile(
+                    icon: LucideIcons.building2,
+                    label: 'Kantor Aktif',
+                    value: _isLoadingKantor
+                        ? '...'
+                        : _kantorLoadError == null
+                        ? '${_kantorList.length}'
+                        : '—',
+                    color: const Color(0xFF1565C0),
+                    backgroundColor: const Color(0xFFEAF3FF),
                   ),
-                ),
+                  _buildDashboardActionTile(
+                    label: 'Mulai Bertugas Agen',
+                    icon: LucideIcons.mapPin,
+                    gradientColors: _brandGradientColors,
+                    hovered: _isAgentTrackingHovered,
+                    pressed: _isAgentTrackingPressed,
+                    onHoverChanged: (value) {
+                      setState(() => _isAgentTrackingHovered = value);
+                    },
+                    onPressedChanged: (value) {
+                      setState(() => _isAgentTrackingPressed = value);
+                    },
+                    onTap: () {
+                      Navigator.pushNamed(context, '/agent-tracking');
+                    },
+                  ),
+                  _buildDashboardStatTile(
+                    icon: LucideIcons.users,
+                    label: 'Total Agen',
+                    value: _isLoadingDashboardStats
+                        ? '...'
+                        : '${_totalAgentCount ?? '—'}',
+                    color: const Color(0xFF7C3AED),
+                    backgroundColor: const Color(0xFFF3E8FF),
+                  ),
+                  if (appRole == 'HEAD_MARKETING' || appRole == 'HEAD_AGENT')
+                    _buildDashboardActionTile(
+                      label: 'Pantau Lokasi Agen',
+                      icon: LucideIcons.map,
+                      gradientColors: _agentMonitoringGradientColors,
+                      hovered: _isAgentMonitoringHovered,
+                      pressed: _isAgentMonitoringPressed,
+                      onHoverChanged: (value) {
+                        setState(() => _isAgentMonitoringHovered = value);
+                      },
+                      onPressedChanged: (value) {
+                        setState(() => _isAgentMonitoringPressed = value);
+                      },
+                      onTap: () {
+                        Navigator.pushNamed(
+                          context,
+                          '/agent-monitoring',
+                          arguments: user,
+                        );
+                      },
+                    ),
+                  _buildDashboardStatTile(
+                    icon: material.Icons.wifi_rounded,
+                    label: 'Agen Online',
+                    value: _isLoadingDashboardStats
+                        ? '...'
+                        : '${_onlineAgentCount ?? '—'}',
+                    color: const Color(0xFF15803D),
+                    backgroundColor: const Color(0xFFDCFCE7),
+                  ),
+                  _buildDashboardStatTile(
+                    icon: material.Icons.wifi_off_rounded,
+                    label: 'Agen Offline',
+                    value: _isLoadingDashboardStats
+                        ? '...'
+                        : '${_offlineAgentCount ?? '—'}',
+                    color: const Color(0xFF64748B),
+                    backgroundColor: const Color(0xFFF1F5F9),
+                  ),
+                ],
               ),
             ),
-            if (appRole == 'HEAD_MARKETING' || appRole == 'HEAD_AGENT')
+            if (_dashboardStatsError != null || _kantorLoadError != null)
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-                child: MouseRegion(
-                  onEnter: (_) {
-                    setState(() => _isAgentMonitoringHovered = true);
-                  },
-                  onExit: (_) {
-                    setState(() => _isAgentMonitoringHovered = false);
-                  },
-                  child: GestureDetector(
-                    onTap: () {
-                      Navigator.pushNamed(
-                        context,
-                        '/agent-monitoring',
-                        arguments: user,
-                      );
-                    },
-                    onTapDown: (_) {
-                      setState(() => _isAgentMonitoringPressed = true);
-                    },
-                    onTapUp: (_) {
-                      setState(() => _isAgentMonitoringPressed = false);
-                    },
-                    onTapCancel: () {
-                      setState(() => _isAgentMonitoringPressed = false);
-                    },
-                    child: AnimatedScale(
-                      scale: _isAgentMonitoringPressed
-                          ? 0.98
-                          : _isAgentMonitoringHovered
-                          ? 1.01
-                          : 1,
-                      duration: const Duration(milliseconds: 140),
-                      child: Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(15),
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: _agentMonitoringGradientColors,
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 9,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF7ED),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFFED7AA)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        material.Icons.info_outline_rounded,
+                        color: Color(0xFFC2410C),
+                        size: 18,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          [
+                            if (_kantorLoadError != null)
+                              'Kantor: $_kantorLoadError',
+                            if (_dashboardStatsError != null)
+                              'Statistik agen: $_dashboardStatsError',
+                          ].join(' '),
+                          style: const TextStyle(
+                            color: Color(0xFF9A3412),
+                            fontSize: 11,
                           ),
-                          borderRadius: BorderRadius.circular(20),
-                          boxShadow: [
-                            BoxShadow(
-                              color: const Color(0x30166534),
-                              blurRadius: _isAgentMonitoringHovered ? 20 : 14,
-                              offset: const Offset(0, 6),
-                            ),
-                          ],
-                        ),
-                        child: const Row(
-                          children: [
-                            Icon(
-                              LucideIcons.users,
-                              color: Colors.white,
-                              size: 24,
-                            ),
-                            SizedBox(width: 16),
-                            Expanded(
-                              child: Text(
-                                'Pantau Lokasi Agen',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16,
-                                ),
-                              ),
-                            ),
-                            Icon(LucideIcons.chevronRight, color: Colors.white),
-                          ],
                         ),
                       ),
-                    ),
+                      material.IconButton(
+                        tooltip: 'Muat ulang statistik',
+                        visualDensity: material.VisualDensity.compact,
+                        onPressed: () {
+                          _loadKantor();
+                          _loadDashboardStats();
+                        },
+                        icon: const Icon(
+                          material.Icons.refresh_rounded,
+                          color: Color(0xFFC2410C),
+                          size: 18,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -1315,8 +1495,9 @@ class _HomePageState extends State<HomePage> {
                   Expanded(
                     child: Text(
                       'Daftar Cabang Perusahaan',
-                      style: theme.typography.h4.copyWith(
+                      style: const TextStyle(
                         fontWeight: FontWeight.bold,
+                        fontSize: 18,
                       ),
                     ),
                   ),
@@ -1396,8 +1577,9 @@ class _HomePageState extends State<HomePage> {
                                       children: [
                                         Text(
                                           cabang.nama,
-                                          style: theme.typography.p.copyWith(
+                                          style: const TextStyle(
                                             fontWeight: FontWeight.bold,
+                                            fontSize: 15,
                                           ),
                                         ),
                                         const SizedBox(height: 4),
@@ -1413,9 +1595,9 @@ class _HomePageState extends State<HomePage> {
                                         const SizedBox(height: 8),
                                         statusBadge(
                                           context,
-                                          cabang.status == 'C'
-                                              ? 'Cabang'
-                                              : 'Pusat',
+                                          jenisKantorLabel(
+                                            cabang.jenisKantor,
+                                          ),
                                         ),
                                       ],
                                     ),
@@ -1511,7 +1693,7 @@ class _MapsPageState extends State<MapsPage>
           email: 'Email tidak ditemukan',
           lat: -6.2088,
           lng: 106.8456,
-          status: 'Tidak diketahui',
+          jenisKantor: '',
         );
 
     final LatLng targetLocation = LatLng(cabangData.lat, cabangData.lng);
@@ -1669,7 +1851,7 @@ class _MapsPageState extends State<MapsPage>
 
                           statusBadge(
                             context,
-                            cabangData.status == 'C' ? 'Cabang' : 'Pusat',
+                            jenisKantorLabel(cabangData.jenisKantor),
                           ),
 
                           const SizedBox(width: 5),
