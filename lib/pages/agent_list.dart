@@ -149,6 +149,8 @@ class _AgentListPageState extends State<AgentListPage>
   double? _longitude;
   Offset? _agentMenuTapPosition;
   bool _initialized = false;
+  bool _didFocusRequestedAgent = false;
+  String? _focusAgentId;
   bool _showAgentSearch = false;
   String _selectedAgentRole = '';
   _AgentSortField _agentSortField = _AgentSortField.name;
@@ -227,6 +229,7 @@ class _AgentListPageState extends State<AgentListPage>
       _alamatKantor = arguments['ALAMAT_KANTOR']?.toString().trim();
       _latitude = _parseCoordinate(arguments['LATITUDE']);
       _longitude = _parseCoordinate(arguments['LONGITUDE']);
+      _focusAgentId = arguments['FOCUS_AGENT_ID']?.toString().trim();
     } else if (arguments is String) {
       _kantor = arguments.trim();
     }
@@ -589,9 +592,9 @@ class _AgentListPageState extends State<AgentListPage>
     final tanggalLahir = (agent['TANGGAL_LAHIR'] ?? 'Belum tersedia')
         .toString()
         .trim();
-    final tanggalLisensi = (agent['TANGGAL_LISENSI'] ?? 'Belum tersedia')
-        .toString()
-        .trim();
+    // final tanggalLisensi = (agent['TANGGAL_LISENSI'] ?? 'Belum tersedia')
+    //     .toString()
+    //     .trim();
     final statusColor = tracking
         ? const Color(0xFF15803D)
         : const Color(0xFF64748B);
@@ -1529,6 +1532,37 @@ class _AgentListPageState extends State<AgentListPage>
         _error = null;
         _refreshError = null;
       });
+      if (_focusAgentId != null &&
+          _focusAgentId!.isNotEmpty &&
+          !_didFocusRequestedAgent) {
+        _didFocusRequestedAgent = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          final requestedId = _focusAgentId!.toUpperCase();
+          Map<String, dynamic>? requestedAgent;
+          for (final agent in _agents) {
+            final agentId = (agent['NOMOR_AGEN'] ?? agent['I_AGEN'] ?? '')
+                .toString()
+                .trim()
+                .toUpperCase();
+            if (agentId == requestedId) {
+              requestedAgent = agent;
+              break;
+            }
+          }
+          if (requestedAgent == null) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Agen tersebut tidak ditemukan di daftar cabang.',
+                ),
+              ),
+            );
+            return;
+          }
+          unawaited(_showAgentLocation(requestedAgent));
+        });
+      }
     } catch (e) {
       if (!mounted) return;
 
@@ -1966,6 +2000,102 @@ class _AgentListPageState extends State<AgentListPage>
     );
   }
 
+  Widget _buildAgentSummary() {
+    final onlineCount = _agents
+        .where((agent) => agent['isTracking'] == true)
+        .length;
+
+    return Row(
+      children: [
+        Expanded(
+          child: _buildAgentSummaryItem(
+            icon: Icons.groups_rounded,
+            label: 'Agen Terdaftar',
+            value: _agents.length,
+            color: const Color(0xFF1565C0),
+            backgroundColor: const Color(0xFFEAF3FF),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _buildAgentSummaryItem(
+            icon: Icons.wifi_tethering_rounded,
+            label: 'Agen Online',
+            value: onlineCount,
+            color: const Color(0xFF15803D),
+            backgroundColor: const Color(0xFFDCFCE7),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAgentSummaryItem({
+    required IconData icon,
+    required String label,
+    required int value,
+    required Color color,
+    required Color backgroundColor,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(color: const Color(0xFFDCE8F8)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x100F172A),
+            blurRadius: 10,
+            offset: Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: backgroundColor,
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: Icon(icon, color: color, size: 19),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '$value',
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 18,
+                    height: 1.1,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF64748B),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final visibleAgents = _visibleAgents;
@@ -2063,6 +2193,10 @@ class _AgentListPageState extends State<AgentListPage>
                         ),
                       ],
                     ),
+                    if (!_loading && _error == null) ...[
+                      _buildAgentSummary(),
+                      const SizedBox(height: 10),
+                    ],
                     if (_showAgentSearch) ...[
                       const SizedBox(height: 4),
                       TextField(
