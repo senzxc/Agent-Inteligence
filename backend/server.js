@@ -639,7 +639,7 @@ app.get(
         let connection;
 
         try {
-            const conditions = [];
+            const conditions = ['a.STATUS = 1'];
             const binds = {};
             let branch = null;
 
