@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/api_service.dart';
+import '../utils/kantor_type.dart';
 
 const Color _pageTop = Color(0xFFF8FBFF);
 const Color _pageBottom = Color(0xFFEAF3FF);
@@ -96,6 +97,7 @@ class _KantorListPageState extends State<KantorListPage> {
         kantor['ALAMAT_KANTOR'],
         kantor['EMAIL'],
         kantor['KET_KANTOR'],
+        kantor['KODE_JENIS_KANTOR'],
         kantor['ZONA'],
       ].map((value) => value?.toString() ?? '').join(' ').toLowerCase();
       return terms.every(searchable.contains);
@@ -202,14 +204,11 @@ class _KantorListPageState extends State<KantorListPage> {
                                     final kode = kantor['KODE_KANTOR']?.toString() ?? '-';
                                     final nama = kantor['NAMA_KANTOR']?.toString().trim();
                                     final alamat = kantor['ALAMAT_KANTOR']?.toString().trim();
-                                    final status = kantor['KET_KANTOR']?.toString().trim();
-                                    final normalizedStatus = status?.toUpperCase();
-                                    final isCenter = normalizedStatus == 'P' || status?.toLowerCase().contains('pusat') == true;
-                                    final statusLabel = normalizedStatus == 'C'
-                                        ? 'Cabang'
-                                        : normalizedStatus == 'P'
-                                            ? 'Pusat'
-                                            : (status == null || status.isEmpty ? 'Kantor cabang' : status);
+                                    final jenisKantor =
+                                        kantor['KODE_JENIS_KANTOR'];
+                                    final isCenter = isKantorPusat(jenisKantor);
+                                    final statusLabel =
+                                        jenisKantorLabel(jenisKantor);
                                     return Material(
                                       color: Colors.white,
                                       borderRadius: BorderRadius.circular(20),
@@ -243,7 +242,7 @@ class _KantorListPageState extends State<KantorListPage> {
                                                   children: [
                                                     Text(nama == null || nama.isEmpty ? 'Nama kantor tidak tersedia' : nama,
                                                       maxLines: 2, overflow: TextOverflow.ellipsis,
-                                                      style: const TextStyle(color: _ink, fontWeight: FontWeight.w800, fontSize: 15.5, height: 1.25)),
+                                                      style: const TextStyle(color: _ink, fontWeight: FontWeight.w700, fontSize: 15.5, height: 1.25)),
                                                     const SizedBox(height: 7),
                                                     Row(
                                                       crossAxisAlignment: CrossAxisAlignment.start,
