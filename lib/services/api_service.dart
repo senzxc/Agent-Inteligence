@@ -242,6 +242,10 @@ class ApiService {
     return _trackingRequest('GET', '/api/agent-tracking/agents');
   }
 
+  static Future<Map<String, dynamic>> getDashboardAgentStats() {
+    return _trackingRequest('GET', '/api/dashboard/agent-stats');
+  }
+
   // Mengambil daftar seluruh agen dari endpoint /api/agents.
   static Future<Map<String, dynamic>> getAgentList({String? kantor}) =>
       getAgentProfiles(kantor: kantor);
