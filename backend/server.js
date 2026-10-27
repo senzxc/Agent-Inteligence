@@ -458,7 +458,8 @@ app.get('/api/kantor', async (req, res) => {
             SELECT
                 NOMOR_KANTOR,
                 KODE_KANTOR,
-                NAMA_KANTOR
+                NAMA_KANTOR,
+                KODE_JENIS_KANTOR
             FROM DAFTAR_KANTOR
             `,
             {},
@@ -628,6 +629,108 @@ app.get('/api/agents', authenticate, async (req, res) => {
         }
     }
 });
+
+app.get(
+    '/api/dashboard/agent-stats',
+    authenticate,
+    requireRoles('HEAD_MARKETING', 'HEAD_AGENT'),
+    async (req, res) => {
+        let connection;
+
+        try {
+            const conditions = [];
+            const binds = {};
+            let branch = null;
+
+            if (req.authRole === 'HEAD_AGENT') {
+                branch = String(
+                    req.authUser.KODE_KANTOR ?? req.authUser.KANTOR ?? ''
+                )
+                    .trim()
+                    .toUpperCase();
+
+                if (!branch) {
+                    return res.status(403).json({
+                        success: false,
+                        message: 'Kode kantor akun kepala agen tidak tersedia.',
+                    });
+                }
+
+                conditions.push('UPPER(c.KODE_KANTOR) = :kantor');
+                binds.kantor = branch;
+            }
+
+            connection = await getConnection();
+
+            const whereClause = conditions.length
+                ? `WHERE ${conditions.join(' AND ')}`
+                : '';
+            const result = await connection.execute(
+                `
+                SELECT DISTINCT b.I_AGEN AS NOMOR_AGEN
+                FROM DAFTAR_AGEN a
+                INNER JOIN TM_AGENCY2 b
+                    ON a.NOMOR_AGEN = b.I_AGEN
+                INNER JOIN DAFTAR_KANTOR c
+                    ON a.NOMOR_KANTOR = c.NOMOR_KANTOR
+                ${whereClause}
+                `,
+                binds,
+                { outFormat: oracledb.OUT_FORMAT_OBJECT }
+            );
+
+            const registeredAgentIds = new Set(
+                result.rows
+                    .map(row =>
+                        String(row.NOMOR_AGEN ?? '')
+                            .trim()
+                            .toUpperCase()
+                    )
+                    .filter(Boolean)
+            );
+            const onlineAgentIds = new Set(
+                Array.from(activeAgents.values())
+                    .filter(
+                        agent =>
+                            agent.latitude !== null &&
+                            agent.longitude !== null &&
+                            (req.authRole !== 'HEAD_AGENT' ||
+                                String(agent.kantor ?? '')
+                                    .trim()
+                                    .toUpperCase() === branch)
+                    )
+                    .map(agent =>
+                        String(agent.stambuk ?? '')
+                            .trim()
+                            .toUpperCase()
+                    )
+                    .filter(agentId => registeredAgentIds.has(agentId))
+            );
+            const totalAgents = registeredAgentIds.size;
+            const onlineAgents = onlineAgentIds.size;
+
+            return res.json({
+                success: true,
+                data: {
+                    totalAgents,
+                    onlineAgents,
+                    offlineAgents: totalAgents - onlineAgents,
+                },
+            });
+        } catch (error) {
+            console.error('Dashboard Agent Stats Error:', error);
+
+            return res.status(500).json({
+                success: false,
+                message: 'Gagal mengambil statistik agen.',
+            });
+        } finally {
+            if (connection) {
+                await connection.close().catch(console.error);
+            }
+        }
+    }
+);
 
 
 // ========================================
