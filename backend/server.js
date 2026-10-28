@@ -456,12 +456,15 @@ app.get('/api/kantor', async (req, res) => {
         const result = await connection.execute(
             `
             SELECT
-                NOMOR_KANTOR,
-                KODE_KANTOR,
-                NAMA_KANTOR,
-                KODE_JENIS_KANTOR
-            FROM DAFTAR_KANTOR
-            WHERE UPPER(NAMA_KANTOR) LIKE :officeName
+                k.NOMOR_KANTOR,
+                k.KODE_KANTOR,
+                k.NAMA_KANTOR,
+                m.ALAMAT_KANTOR,
+                k.KODE_JENIS_KANTOR
+            FROM DAFTAR_KANTOR k
+            LEFT JOIN MUTASI_KANTOR m
+                ON m.NOMOR_KANTOR = k.NOMOR_KANTOR
+            WHERE UPPER(k.NAMA_KANTOR) LIKE :officeName
             `,
             { officeName: '%SYARIAH%' },
             { outFormat: oracledb.OUT_FORMAT_OBJECT }
