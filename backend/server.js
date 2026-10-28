@@ -456,11 +456,8 @@ app.get('/api/kantor', async (req, res) => {
         const result = await connection.execute(
             `
             SELECT
-                k.NOMOR_KANTOR,
-                k.KODE_KANTOR,
-                k.NAMA_KANTOR,
-                m.ALAMAT_KANTOR,
-                k.KODE_JENIS_KANTOR
+                k.*,
+                m.ALAMAT_KANTOR AS ALAMAT_KANTOR_MUTASI
             FROM DAFTAR_KANTOR k
             LEFT JOIN MUTASI_KANTOR m
                 ON m.NOMOR_KANTOR = k.NOMOR_KANTOR
@@ -1100,6 +1097,85 @@ app.post(
             return res.status(500).json({
                 success: false,
                 message: 'Gagal menyimpan tugas',
+            });
+        }
+    }
+);
+
+// ========================================
+// TUGAS AGEN: EDIT TUGAS
+// ========================================
+
+app.patch(
+    '/api/tasks/:taskId',
+    authenticate,
+    requireRoles('HEAD_AGENT', 'AGENT'),
+    async (req, res) => {
+        try {
+            const taskId = String(req.params.taskId);
+            const judul = String(req.body.judul ?? '').trim();
+            const deskripsi = String(req.body.deskripsi ?? '').trim();
+            const tenggat = String(req.body.tenggat ?? '').trim();
+
+            if (!judul) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Judul tugas wajib diisi',
+                });
+            }
+
+            if (judul.length > 200) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Judul maksimal 200 karakter',
+                });
+            }
+
+            if (deskripsi.length > 5000) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Deskripsi maksimal 5000 karakter',
+                });
+            }
+
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(tenggat)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Format tenggat harus YYYY-MM-DD',
+                });
+            }
+
+            const tasks = await readTasks();
+            const index = tasks.findIndex(task => task.id === taskId);
+
+            if (index === -1) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Tugas tidak ditemukan',
+                });
+            }
+
+            tasks[index] = {
+                ...tasks[index],
+                judul,
+                deskripsi,
+                tenggat,
+                updatedAt: new Date().toISOString(),
+            };
+
+            await writeTasks(tasks);
+
+            return res.json({
+                success: true,
+                message: 'Tugas berhasil diperbarui',
+                data: tasks[index],
+            });
+        } catch (error) {
+            console.error('Update Agent Task Error:', error);
+
+            return res.status(500).json({
+                success: false,
+                message: 'Gagal memperbarui tugas',
             });
         }
     }
