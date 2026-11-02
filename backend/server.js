@@ -73,6 +73,48 @@ async function writeTasks(tasks) {
     await fs.rename(tempFile, TASKS_FILE);
 }
 
+function localDateString(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+function completeOverdueTasks(tasks, now = new Date()) {
+    const today = localDateString(now);
+    const completedAt = now.toISOString();
+    let updated = false;
+
+    for (const task of tasks) {
+        const deadline = String(task.tenggat ?? task.deadline ?? '').trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(deadline)) continue;
+
+        const parsedDeadline = new Date(`${deadline}T00:00:00.000Z`);
+        if (
+            Number.isNaN(parsedDeadline.getTime()) ||
+            parsedDeadline.toISOString().slice(0, 10) !== deadline ||
+            deadline >= today ||
+            String(task.status ?? task.STATUS ?? '') === 'Selesai'
+        ) {
+            continue;
+        }
+
+        task.status = 'Selesai';
+        task.completedAt = task.completedAt ?? completedAt;
+        task.updatedAt = completedAt;
+        updated = true;
+    }
+
+    return updated;
+}
+
+async function completeOverdueTasksInStorage() {
+    const tasks = await readTasks();
+    if (completeOverdueTasks(tasks)) {
+        await writeTasks(tasks);
+    }
+}
+
 // ========================================
 // ROLE / HAK AKSES
 // ========================================
@@ -989,6 +1031,9 @@ app.get(
             }
 
             const tasks = await readTasks();
+            if (completeOverdueTasks(tasks)) {
+                await writeTasks(tasks);
+            }
 
             const agentTasks = tasks
                 .filter(task => task.agentId === agentId)
@@ -1083,6 +1128,7 @@ app.post(
             };
 
             tasks.push(newTask);
+            completeOverdueTasks(tasks);
 
             await writeTasks(tasks);
 
@@ -1162,6 +1208,7 @@ app.patch(
                 tenggat,
                 updatedAt: new Date().toISOString(),
             };
+            completeOverdueTasks([tasks[index]]);
 
             await writeTasks(tasks);
 
@@ -1219,6 +1266,22 @@ app.patch(
                 return res.status(404).json({
                     success: false,
                     message: 'Tugas tidak ditemukan',
+                });
+            }
+
+            const taskWasCompleted = completeOverdueTasks([tasks[index]]);
+            if (taskWasCompleted) {
+                await writeTasks(tasks);
+            }
+            if (
+                String(tasks[index].status ?? tasks[index].STATUS ?? '') ===
+                    'Selesai' &&
+                status !== 'Selesai'
+            ) {
+                return res.status(409).json({
+                    success: false,
+                    message: 'Status tugas yang sudah selesai tidak dapat diubah.',
+                    data: tasks[index],
                 });
             }
 
@@ -1299,4 +1362,12 @@ app.delete(
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server berjalan di port ${PORT}`);
     console.log('Role agen menggunakan C_AGENCY_JABATAN; role admin menggunakan LEVEL_USER.');
+    void completeOverdueTasksInStorage().catch(error => {
+        console.error('Auto-complete overdue tasks Error:', error);
+    });
+    setInterval(() => {
+        void completeOverdueTasksInStorage().catch(error => {
+            console.error('Auto-complete overdue tasks Error:', error);
+        });
+    }, 60_000);
 });
