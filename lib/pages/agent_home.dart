@@ -47,12 +47,7 @@ class _AgentHomePageState extends State<AgentHomePage> {
   String get _agentId =>
       _firstValue(['STAMBUK', 'stambuk', 'NOMOR_AGEN', 'I_AGEN', 'nomorAgen']);
 
-  String get _office => _firstValue([
-    'NAMA_KANTOR',
-    'KODE_KANTOR',
-    'KANTOR',
-    'kantor',
-  ], fallback: 'Kantor belum ditentukan');
+  String get _officeCode => _firstValue(['KODE_KANTOR', 'KANTOR', 'kantor']);
 
   @override
   void initState() {
@@ -443,7 +438,7 @@ class _AgentHomePageState extends State<AgentHomePage> {
           const SizedBox(height: 18),
           _welcomeInfo(Icons.badge_outlined, 'Stambuk: $_agentId'),
           const SizedBox(height: 9),
-          _welcomeInfo(Icons.business_outlined, 'Kantor: $_office'),
+          _welcomeInfo(Icons.business_outlined, 'Kode Kantor: $_officeCode'),
           const SizedBox(height: 18),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -490,7 +485,8 @@ class _AgentHomePageState extends State<AgentHomePage> {
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.9),
-              fontSize: 12,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ),
@@ -526,12 +522,7 @@ class _AgentHomePageState extends State<AgentHomePage> {
           child: const Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                'Lihat semua',
-                style: TextStyle(
-                  color: Colors.black
-                ),
-                ),
+              Text('Lihat semua', style: TextStyle(color: Colors.black)),
               SizedBox(width: 3),
               Icon(Icons.arrow_forward_rounded, size: 16),
             ],
