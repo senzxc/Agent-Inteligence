@@ -276,6 +276,20 @@ class ApiService {
     );
   }
 
+  // Memperbarui informasi tugas.
+  static Future<Map<String, dynamic>> updateAgentTask({
+    required String taskId,
+    required String judul,
+    required String deskripsi,
+    required String tenggat,
+  }) {
+    return _trackingRequest(
+      'PATCH',
+      '/api/tasks/${Uri.encodeComponent(taskId)}',
+      body: {'judul': judul, 'deskripsi': deskripsi, 'tenggat': tenggat},
+    );
+  }
+
   // Mengubah status tugas.
   static Future<Map<String, dynamic>> updateTaskStatus({
     required String taskId,
