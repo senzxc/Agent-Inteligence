@@ -8,6 +8,7 @@ require('dotenv').config();
 
 const { getConnection } = require('./database');
 const oracledb = require('oracledb');
+const { getLocationAnomalies } = require('./location_anomaly');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -806,6 +807,8 @@ app.post(
             longitude: null,
             accuracy: null,
             speed: null,
+            locationSuspicious: false,
+            locationWarnings: [],
             startedAt: new Date().toISOString(),
             lastUpdated: null,
         };
@@ -864,6 +867,7 @@ app.post(
             longitude,
             accuracy,
             speed,
+            isMocked,
         } = req.body;
 
         const lat = Number(latitude);
@@ -887,8 +891,21 @@ app.post(
             });
         }
 
+        const receivedAt = new Date();
+        const anomalies = getLocationAnomalies(
+            agent,
+            { latitude: lat, longitude: lng },
+            receivedAt,
+            isMocked === true
+        );
+
         agent.latitude = lat;
         agent.longitude = lng;
+        agent.locationSuspicious =
+            agent.locationSuspicious || anomalies.length > 0;
+        agent.locationWarnings = [
+            ...new Set([...(agent.locationWarnings ?? []), ...anomalies]),
+        ];
 
         agent.accuracy =
             accuracy != null && Number.isFinite(Number(accuracy))
@@ -900,7 +917,7 @@ app.post(
                 ? Number(speed)
                 : null;
 
-        agent.lastUpdated = new Date().toISOString();
+        agent.lastUpdated = receivedAt.toISOString();
 
         activeAgents.set(stambuk, agent);
 
