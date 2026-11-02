@@ -468,6 +468,8 @@ class _AgentMonitoringPageState extends State<AgentMonitoringPage>
                                   final markerColor = _agentMarkerColor(
                                     stambuk,
                                   );
+                                  final suspicious =
+                                      agent['locationSuspicious'] == true;
 
                                   return GestureDetector(
                                     onTap: () {
@@ -479,7 +481,8 @@ class _AgentMonitoringPageState extends State<AgentMonitoringPage>
                                             'Stambuk: ${stambuk ?? '-'}\n'
                                             'Kantor: ${agent['kantor'] ?? '-'}\n'
                                             'Latitude: ${agent['latitude']}\n'
-                                            'Longitude: ${agent['longitude']}',
+                                            'Longitude: ${agent['longitude']}'
+                                            '${suspicious ? '\n\nLokasi perlu diverifikasi:\n${(agent['locationWarnings'] as List? ?? []).join(', ')}' : ''}',
                                           ),
                                           actions: [
                                             TextButton(
@@ -491,7 +494,12 @@ class _AgentMonitoringPageState extends State<AgentMonitoringPage>
                                         ),
                                       );
                                     },
-                                    child: _agentMarker(nama, markerColor),
+                                    child: _agentMarker(
+                                      nama,
+                                      suspicious
+                                          ? const Color(0xFFDC2626)
+                                          : markerColor,
+                                    ),
                                   );
                                 },
                               ),
@@ -556,6 +564,9 @@ class _AgentMonitoringPageState extends State<AgentMonitoringPage>
                           final markerColor = _agentMarkerColor(
                             agent['stambuk'],
                           );
+                          final suspicious =
+                              agent['locationSuspicious'] ==
+                                  true;
 
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 6),
@@ -571,7 +582,12 @@ class _AgentMonitoringPageState extends State<AgentMonitoringPage>
                                     padding: const EdgeInsets.all(4),
                                     child: Row(
                                       children: [
-                                        _agentMarker(nama, markerColor),
+                                        _agentMarker(
+                                          nama,
+                                          suspicious
+                                              ? const Color(0xFFDC2626)
+                                              : markerColor,
+                                        ),
                                         const SizedBox(width: 12),
                                         Expanded(
                                           child: Column(
@@ -589,6 +605,18 @@ class _AgentMonitoringPageState extends State<AgentMonitoringPage>
                                                   fontSize: 15,
                                                 ),
                                               ),
+                                              if (suspicious) ...[
+                                                const SizedBox(height: 4),
+                                                Text(
+                                                  'Lokasi perlu diverifikasi: '
+                                                  '${(agent['locationWarnings'] as List? ?? []).join(', ')}',
+                                                  style: const TextStyle(
+                                                    color: Color(0xFFB91C1C),
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.w700,
+                                                  ),
+                                                ),
+                                              ],
                                               const SizedBox(height: 5),
                                               Text(
                                                 'Kantor: ${agent['kantor'] ?? '-'}',
