@@ -16,6 +16,7 @@ import 'pages/agent_team_home.dart';
 import 'pages/kantor_list.dart';
 import 'services/api_service.dart';
 import 'services/gps_tracking_service.dart';
+import 'utils/agency_role.dart';
 import 'utils/kantor_type.dart';
 
 // import 'package:lottie/lottie.dart';
@@ -118,6 +119,46 @@ Widget statusBadge(
   );
 }
 
+material.Widget _buildBranchInfoPill({
+  required material.IconData icon,
+  required String label,
+  bool isBlue = false,
+}) {
+  final color = isBlue
+      ? const material.Color(0xFF1565C0)
+      : const material.Color(0xFF718096);
+
+  return material.Container(
+    padding: const material.EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+    decoration: material.BoxDecoration(
+      color: isBlue
+          ? const material.Color(0xFFEAF3FF)
+          : const material.Color(0xFFF3F6FA),
+      borderRadius: material.BorderRadius.circular(9),
+    ),
+    child: material.Row(
+      mainAxisSize: material.MainAxisSize.min,
+      children: [
+        material.Icon(icon, size: 12, color: color),
+        const material.SizedBox(width: 5),
+        material.ConstrainedBox(
+          constraints: const material.BoxConstraints(maxWidth: 170),
+          child: material.Text(
+            label,
+            maxLines: 1,
+            overflow: material.TextOverflow.ellipsis,
+            style: material.TextStyle(
+              fontSize: 10.5,
+              fontWeight: material.FontWeight.w700,
+              color: isBlue ? color : const material.Color(0xFF596579),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 // ==========================================
 // MODEL CABANG
 // ==========================================
@@ -130,6 +171,7 @@ class Cabang {
   final double lat;
   final double lng;
   final String jenisKantor;
+  final Map<String, dynamic>? data;
 
   const Cabang({
     this.kode = '',
@@ -139,6 +181,7 @@ class Cabang {
     required this.lat,
     required this.lng,
     required this.jenisKantor,
+    this.data,
   });
 }
 
@@ -251,6 +294,8 @@ class BusinessIntelligenceApp extends StatelessWidget {
         '/agent-monitoring': (context) => const AgentMonitoringPage(),
         '/agent-list': (context) => const AgentListPage(),
         '/kantor-list': (context) => const KantorListPage(),
+        '/kantor-active-map': (context) =>
+            const KantorListPage(showMiniMap: true),
       },
     );
   }
@@ -795,6 +840,8 @@ class _HomePageState extends State<HomePage> {
   List<Map<String, dynamic>> _kantorList = [];
   bool _isLoadingKantor = true;
   bool _hasLoadedKantor = false;
+  bool _canLoadDashboardStats = false;
+  bool _isRefreshingDashboard = false;
   bool _isLoadingDashboardStats = true;
   int? _totalAgentCount;
   int? _onlineAgentCount;
@@ -843,10 +890,25 @@ class _HomePageState extends State<HomePage> {
               .trim()
               .toUpperCase()
         : '';
-    if (appRole == 'HEAD_MARKETING' || appRole == 'HEAD_AGENT') {
+    _canLoadDashboardStats =
+        appRole == 'HEAD_MARKETING' || appRole == 'HEAD_AGENT';
+    if (_canLoadDashboardStats) {
       _loadDashboardStats();
     } else {
       _isLoadingDashboardStats = false;
+    }
+  }
+
+  Future<void> _refreshDashboard() async {
+    if (_isRefreshingDashboard) return;
+    setState(() => _isRefreshingDashboard = true);
+    try {
+      await Future.wait([
+        _loadKantor(),
+        if (_canLoadDashboardStats) _loadDashboardStats(),
+      ]);
+    } finally {
+      if (mounted) setState(() => _isRefreshingDashboard = false);
     }
   }
 
@@ -955,66 +1017,88 @@ class _HomePageState extends State<HomePage> {
     required String value,
     required Color color,
     required Color backgroundColor,
+    VoidCallback? onTap,
   }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.white,
+    return material.Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(17),
+      child: material.InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(17),
-        border: Border.all(color: const Color(0xFFDCE8F8)),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x100F172A),
-            blurRadius: 10,
-            offset: Offset(0, 3),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(17),
+            border: Border.all(color: const Color(0xFFDCE8F8)),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x100F172A),
+                blurRadius: 10,
+                offset: Offset(0, 3),
+              ),
+            ],
           ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 38,
-            height: 38,
-            decoration: BoxDecoration(
-              color: backgroundColor,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: color, size: 20),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  value,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: color,
-                    fontSize: 19,
-                    height: 1.05,
-                    fontWeight: FontWeight.w800,
-                  ),
+          child: Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: backgroundColor,
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Color(0xFF64748B),
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                  ),
+                child: Icon(icon, color: color, size: 20),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      value,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: color,
+                        fontSize: 19,
+                        height: 1.05,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF64748B),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
+  }
+
+  void _openAgentList({
+    required Map user,
+    required String appRole,
+    required String statusFilter,
+    required bool viewAllBranches,
+  }) {
+    final arguments = Map<String, dynamic>.from(user)
+      ..['APP_ROLE'] = appRole
+      ..['INITIAL_STATUS_FILTER'] = statusFilter
+      ..['VIEW_ALL_BRANCHES'] = viewAllBranches;
+    Navigator.pushNamed(context, '/agent-list', arguments: arguments);
   }
 
   Widget _buildDashboardActionTile({
@@ -1093,24 +1177,26 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isCompactLayout = MediaQuery.sizeOf(context).width < 600;
     final arguments = ModalRoute.of(context)?.settings.arguments;
     final user = arguments is Map ? arguments : const <String, dynamic>{};
     final nama = (user['NAMA_AGEN'] ?? user['NAMA'] ?? user['nama'])
         ?.toString()
         .trim();
     final displayName = nama == null || nama.isEmpty ? 'Admin Cabang' : nama;
-    final kodeKantor =
-        (user['KODE_KANTOR'] ?? user['KANTOR'] ?? user['kantor'])
-            ?.toString()
-            .trim() ??
-        '-';
+    final namaKantor = (user['NAMA_KANTOR'] ?? user['namaKantor'])
+        ?.toString()
+        .trim();
+    final officeName = namaKantor == null || namaKantor.isEmpty
+        ? '-'
+        : namaKantor;
     final levelUser = (user['LEVEL_USER'] ?? user['level_user'] ?? '')
         .toString()
         .trim();
     final agencyRoleValue = (user['C_AGENCY_JABATAN'] ?? '').toString().trim();
     final agencyRole = agencyRoleValue.toUpperCase();
     final userRoleLabel = agencyRoleValue.isNotEmpty
-        ? agencyRoleValue
+        ? formatAgencyRole(agencyRoleValue)
         : levelUser == '1'
         ? 'Kepala Pemasaran'
         : levelUser == '2'
@@ -1174,11 +1260,15 @@ class _HomePageState extends State<HomePage> {
       return Cabang(
         kode: kantor['KODE_KANTOR']?.toString() ?? '',
         nama: kantor['NAMA_KANTOR']?.toString() ?? '-',
-        alamat: kantor['ALAMAT_KANTOR']?.toString() ?? '-',
+        alamat:
+            (kantor['ALAMAT_KANTOR_MUTASI'] ?? kantor['ALAMAT_KANTOR'])
+                ?.toString() ??
+            '-',
         email: kantor['EMAIL']?.toString() ?? '-',
         lat: (kantor['LATITUDE'] as num?)?.toDouble() ?? 0.0,
         lng: (kantor['LONGITUDE'] as num?)?.toDouble() ?? 0.0,
         jenisKantor: kantor['KODE_JENIS_KANTOR']?.toString() ?? '',
+        data: kantor,
       );
     }).toList();
     final previewCabangList = cabangList.take(5).toList();
@@ -1190,6 +1280,24 @@ class _HomePageState extends State<HomePage> {
         AppBar(
           backgroundColor: Colors.transparent,
           trailing: [
+            IconButton(
+              variance: ButtonVariance.ghost,
+              onPressed: _isRefreshingDashboard ? null : _refreshDashboard,
+              icon: _isRefreshingDashboard
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Color(0xFF1565C0),
+                      ),
+                    )
+                  : const Icon(
+                      LucideIcons.refreshCw,
+                      size: 18,
+                      color: Color(0xFF1565C0),
+                    ),
+            ),
             IconButton(
               variance: ButtonVariance.ghost,
               onPressed: () => _showLogoutDialog(context),
@@ -1204,304 +1312,483 @@ class _HomePageState extends State<HomePage> {
       ],
       child: DecoratedBox(
         decoration: const BoxDecoration(gradient: _pageBackgroundGradient),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF0D47A1), Color(0xFF1565C0)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                padding: EdgeInsets.fromLTRB(
+                  20,
+                  20,
+                  20,
+                  isCompactLayout ? 14 : 20,
                 ),
-                borderRadius: BorderRadius.circular(22),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x260D47A1),
-                    blurRadius: 16,
-                    offset: Offset(0, 7),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF0D47A1), Color(0xFF1565C0)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
                   ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 48,
-                        height: 48,
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.16),
-                          borderRadius: BorderRadius.circular(15),
+                  borderRadius: BorderRadius.circular(22),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x260D47A1),
+                      blurRadius: 16,
+                      offset: Offset(0, 7),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.16),
+                            borderRadius: BorderRadius.circular(15),
+                          ),
+                          child: const Icon(
+                            LucideIcons.user,
+                            color: Colors.white,
+                            size: 28,
+                          ),
                         ),
-                        child: const Icon(
-                          LucideIcons.user,
-                          color: Colors.white,
-                          size: 28,
-                        ),
-                      ),
-                      const SizedBox(width: 13),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Selamat datang,',
-                              style: theme.typography.small.copyWith(
-                                color: Colors.white.withValues(alpha: 0.8),
+                        const SizedBox(width: 13),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Selamat datang,',
+                                style: theme.typography.small.copyWith(
+                                  color: Colors.white.withValues(alpha: 0.8),
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 3),
-                            Text(
-                              displayName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 20,
-                                color: Colors.white,
-                                fontWeight: FontWeight.w800,
+                              const SizedBox(height: 3),
+                              Text(
+                                displayName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 20,
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w800,
+                                ),
                               ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 18),
+
+                    // INFORMASI ID AGEN
+                    Row(
+                      children: [
+                        Icon(
+                          material.Icons.badge_outlined,
+                          color: Colors.white.withValues(alpha: 0.85),
+                          size: 16,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'ID: ${(user['I_AGEN'] ?? user['NOMOR_AGEN'] ?? user['STAMBUK'] ?? user['stambuk'] ?? '-').toString()}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.typography.small.copyWith(
+                              color: Colors.white.withValues(alpha: 0.9),
+                              fontWeight: FontWeight.w500,
+                              fontSize: 13,
                             ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 18),
-
-                  // INFORMASI ID AGEN
-                  Row(
-                    children: [
-                      Icon(
-                        material.Icons.badge_outlined,
-                        color: Colors.white.withValues(alpha: 0.85),
-                        size: 17,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'ID: ${(user['I_AGEN'] ?? user['NOMOR_AGEN'] ?? user['STAMBUK'] ?? user['stambuk'] ?? '-').toString()}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.typography.small.copyWith(
-                            color: Colors.white.withValues(alpha: 0.9),
                           ),
                         ),
-                      ),
-                    ],
-                  ),
+                      ],
+                    ),
 
-                  const SizedBox(height: 9),
+                    const SizedBox(height: 9),
 
-                  // INFORMASI KANTOR
-                  Row(
-                    children: [
-                      Icon(
-                        material.Icons.business_outlined,
-                        color: Colors.white.withValues(alpha: 0.85),
-                        size: 17,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Kantor: $kodeKantor',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.typography.small.copyWith(
-                            color: Colors.white.withValues(alpha: 0.9),
+                    // INFORMASI KANTOR
+                    Row(
+                      children: [
+                        Icon(
+                          material.Icons.business_outlined,
+                          color: Colors.white.withValues(alpha: 0.85),
+                          size: 16,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Kantor: $officeName',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.typography.small.copyWith(
+                              color: Colors.white.withValues(alpha: 0.9),
+                              fontWeight: FontWeight.w500,
+                              fontSize: 13,
+                            ),
                           ),
                         ),
-                      ),
-                    ],
-                  ),
+                      ],
+                    ),
 
-                  const SizedBox(height: 9),
+                    const SizedBox(height: 9),
 
-                  // INFORMASI JABATAN
-                  Row(
-                    children: [
-                      Icon(
-                        material.Icons.work_outline,
-                        color: Colors.white.withValues(alpha: 0.85),
-                        size: 17,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Jabatan: $userRoleLabel',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.typography.small.copyWith(
-                            color: Colors.white.withValues(alpha: 0.9),
+                    // INFORMASI JABATAN
+                    Row(
+                      children: [
+                        Icon(
+                          material.Icons.work_outline,
+                          color: Colors.white.withValues(alpha: 0.85),
+                          size: 16,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Jabatan: $userRoleLabel',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.typography.small.copyWith(
+                              color: Colors.white.withValues(alpha: 0.9),
+                              fontWeight: FontWeight.w500,
+                              fontSize: 13,
+                            ),
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                ],
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
 
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-              child: GridView.count(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                crossAxisCount: 2,
-                crossAxisSpacing: 10,
-                mainAxisSpacing: 10,
-                childAspectRatio: 3.00,
-                children: [
-                  _buildDashboardStatTile(
-                    icon: LucideIcons.building2,
-                    label: 'Kantor Aktif',
-                    value: _isLoadingKantor
-                        ? '...'
-                        : _kantorLoadError == null
-                        ? '${_kantorList.length}'
-                        : '—',
-                    color: const Color(0xFF1565C0),
-                    backgroundColor: const Color(0xFFEAF3FF),
-                  ),
-                  _buildDashboardActionTile(
-                    label: 'Mulai Bertugas Agen',
-                    icon: LucideIcons.mapPin,
-                    gradientColors: _brandGradientColors,
-                    hovered: _isAgentTrackingHovered,
-                    pressed: _isAgentTrackingPressed,
-                    onHoverChanged: (value) {
-                      setState(() => _isAgentTrackingHovered = value);
-                    },
-                    onPressedChanged: (value) {
-                      setState(() => _isAgentTrackingPressed = value);
-                    },
-                    onTap: () {
-                      Navigator.pushNamed(context, '/agent-tracking');
-                    },
-                  ),
-                  _buildDashboardStatTile(
-                    icon: LucideIcons.users,
-                    label: 'Total Agen',
-                    value: _isLoadingDashboardStats
-                        ? '...'
-                        : '${_totalAgentCount ?? '—'}',
-                    color: const Color(0xFF7C3AED),
-                    backgroundColor: const Color(0xFFF3E8FF),
-                  ),
-                  if (appRole == 'HEAD_MARKETING' || appRole == 'HEAD_AGENT')
+              Padding(
+                padding: EdgeInsets.fromLTRB(
+                  16,
+                  isCompactLayout ? 8 : 16,
+                  16,
+                  0,
+                ),
+                child: GridView.count(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  crossAxisCount: 2,
+                  crossAxisSpacing: 10,
+                  mainAxisSpacing: isCompactLayout ? 8 : 10,
+                  childAspectRatio: 3.00,
+                  children: [
+                    _buildDashboardStatTile(
+                      icon: LucideIcons.building2,
+                      label: 'Kantor Aktif',
+                      value: _isLoadingKantor
+                          ? '...'
+                          : _kantorLoadError == null
+                          ? '${_kantorList.length}'
+                          : '—',
+                      color: const Color(0xFF1565C0),
+                      backgroundColor: const Color(0xFFEAF3FF),
+                      onTap: () => Navigator.pushNamed(
+                        context,
+                        '/kantor-active-map',
+                        arguments: user,
+                      ),
+                    ),
                     _buildDashboardActionTile(
-                      label: 'Pantau Lokasi Agen',
-                      icon: LucideIcons.map,
-                      gradientColors: _agentMonitoringGradientColors,
-                      hovered: _isAgentMonitoringHovered,
-                      pressed: _isAgentMonitoringPressed,
+                      label: 'Mulai Bertugas Agen',
+                      icon: LucideIcons.mapPin,
+                      gradientColors: _brandGradientColors,
+                      hovered: _isAgentTrackingHovered,
+                      pressed: _isAgentTrackingPressed,
                       onHoverChanged: (value) {
-                        setState(() => _isAgentMonitoringHovered = value);
+                        setState(() => _isAgentTrackingHovered = value);
                       },
                       onPressedChanged: (value) {
-                        setState(() => _isAgentMonitoringPressed = value);
+                        setState(() => _isAgentTrackingPressed = value);
                       },
                       onTap: () {
-                        Navigator.pushNamed(
-                          context,
-                          '/agent-monitoring',
-                          arguments: user,
-                        );
+                        Navigator.pushNamed(context, '/agent-tracking');
                       },
                     ),
-                  _buildDashboardStatTile(
-                    icon: material.Icons.wifi_rounded,
-                    label: 'Agen Online',
-                    value: _isLoadingDashboardStats
-                        ? '...'
-                        : '${_onlineAgentCount ?? '—'}',
-                    color: const Color(0xFF15803D),
-                    backgroundColor: const Color(0xFFDCFCE7),
-                  ),
-                  _buildDashboardStatTile(
-                    icon: material.Icons.wifi_off_rounded,
-                    label: 'Agen Offline',
-                    value: _isLoadingDashboardStats
-                        ? '...'
-                        : '${_offlineAgentCount ?? '—'}',
-                    color: const Color(0xFF64748B),
-                    backgroundColor: const Color(0xFFF1F5F9),
-                  ),
-                ],
-              ),
-            ),
-            if (_dashboardStatsError != null || _kantorLoadError != null)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 9,
-                  ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFFF7ED),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFFED7AA)),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(
-                        material.Icons.info_outline_rounded,
-                        color: Color(0xFFC2410C),
-                        size: 18,
+                    _buildDashboardStatTile(
+                      icon: LucideIcons.users,
+                      label: 'Total Agen',
+                      value: _isLoadingDashboardStats
+                          ? '...'
+                          : '${_totalAgentCount ?? '—'}',
+                      color: const Color(0xFF7C3AED),
+                      backgroundColor: const Color(0xFFF3E8FF),
+                      onTap: () => _openAgentList(
+                        user: user,
+                        appRole: appRole,
+                        statusFilter: 'all',
+                        viewAllBranches: appRole == 'HEAD_MARKETING',
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          [
-                            if (_kantorLoadError != null)
-                              'Kantor: $_kantorLoadError',
-                            if (_dashboardStatsError != null)
-                              'Statistik agen: $_dashboardStatsError',
-                          ].join(' '),
-                          style: const TextStyle(
-                            color: Color(0xFF9A3412),
-                            fontSize: 11,
-                          ),
-                        ),
-                      ),
-                      material.IconButton(
-                        tooltip: 'Muat ulang statistik',
-                        visualDensity: material.VisualDensity.compact,
-                        onPressed: () {
-                          _loadKantor();
-                          _loadDashboardStats();
+                    ),
+                    if (appRole == 'HEAD_MARKETING' || appRole == 'HEAD_AGENT')
+                      _buildDashboardActionTile(
+                        label: 'Pantau Lokasi Agen',
+                        icon: LucideIcons.map,
+                        gradientColors: _agentMonitoringGradientColors,
+                        hovered: _isAgentMonitoringHovered,
+                        pressed: _isAgentMonitoringPressed,
+                        onHoverChanged: (value) {
+                          setState(() => _isAgentMonitoringHovered = value);
                         },
-                        icon: const Icon(
-                          material.Icons.refresh_rounded,
+                        onPressedChanged: (value) {
+                          setState(() => _isAgentMonitoringPressed = value);
+                        },
+                        onTap: () {
+                          Navigator.pushNamed(
+                            context,
+                            '/agent-monitoring',
+                            arguments: user,
+                          );
+                        },
+                      ),
+                    _buildDashboardStatTile(
+                      icon: material.Icons.wifi_rounded,
+                      label: 'Agen Online',
+                      value: _isLoadingDashboardStats
+                          ? '...'
+                          : '${_onlineAgentCount ?? '—'}',
+                      color: const Color(0xFF15803D),
+                      backgroundColor: const Color(0xFFDCFCE7),
+                      onTap: () => _openAgentList(
+                        user: user,
+                        appRole: appRole,
+                        statusFilter: 'online',
+                        viewAllBranches: appRole == 'HEAD_MARKETING',
+                      ),
+                    ),
+                    _buildDashboardStatTile(
+                      icon: material.Icons.wifi_off_rounded,
+                      label: 'Agen Offline',
+                      value: _isLoadingDashboardStats
+                          ? '...'
+                          : '${_offlineAgentCount ?? '—'}',
+                      color: const Color(0xFF64748B),
+                      backgroundColor: const Color(0xFFF1F5F9),
+                      onTap: () => _openAgentList(
+                        user: user,
+                        appRole: appRole,
+                        statusFilter: 'offline',
+                        viewAllBranches: appRole == 'HEAD_MARKETING',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (_dashboardStatsError != null || _kantorLoadError != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 9,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF7ED),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFFED7AA)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          material.Icons.info_outline_rounded,
                           color: Color(0xFFC2410C),
                           size: 18,
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Daftar Cabang Perusahaan',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 18,
-                      ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            [
+                              if (_kantorLoadError != null)
+                                'Kantor: $_kantorLoadError',
+                              if (_dashboardStatsError != null)
+                                'Statistik agen: $_dashboardStatsError',
+                            ].join(' '),
+                            style: const TextStyle(
+                              color: Color(0xFF9A3412),
+                              fontSize: 11,
+                            ),
+                          ),
+                        ),
+                        material.IconButton(
+                          tooltip: 'Muat ulang statistik',
+                          visualDensity: material.VisualDensity.compact,
+                          onPressed: () {
+                            _refreshDashboard();
+                          },
+                          icon: const Icon(
+                            material.Icons.refresh_rounded,
+                            color: Color(0xFFC2410C),
+                            size: 18,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  material.TextButton.icon(
+                ),
+
+              Padding(
+                padding: EdgeInsets.fromLTRB(
+                  20,
+                  isCompactLayout ? 12 : 20,
+                  20,
+                  isCompactLayout ? 8 : 12,
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Daftar Cabang Perusahaan',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 18,
+                        ),
+                      ),
+                    ),
+                    material.TextButton.icon(
+                      onPressed: () {
+                        Navigator.pushNamed(
+                          context,
+                          '/kantor-list',
+                          arguments: user,
+                        );
+                      },
+                      icon: const Icon(material.Icons.arrow_forward, size: 17),
+                      label: const Text(
+                        'Lihat semua',
+                        style: TextStyle(color: Colors.black),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (_isLoadingKantor)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 32),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else
+                ListView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  itemCount: previewCabangList.length,
+                  itemBuilder: (context, index) {
+                    final cabang = previewCabangList[index];
+
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: ButtonStyleOverride(
+                        decoration: (_, _, defaultDecoration) {
+                          if (defaultDecoration is BoxDecoration) {
+                            return defaultDecoration.copyWith(
+                              boxShadow: const [_softComponentShadow],
+                            );
+                          }
+                          return defaultDecoration;
+                        },
+                        child: CardButton(
+                          onPressed: () {
+                            Navigator.pushNamed(
+                              context,
+                              '/agent-list',
+                              arguments: {
+                                'KODE_KANTOR': cabang.kode,
+                                'NAMA_KANTOR': cabang.nama,
+                                'ALAMAT_KANTOR': cabang.alamat,
+                                'LATITUDE': cabang.lat,
+                                'LONGITUDE': cabang.lng,
+                                'DATA_KANTOR': cabang.data,
+                                'APP_ROLE': appRole,
+                                'LEVEL_USER': levelUser,
+                              },
+                            );
+                          },
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: theme.colorScheme.primary.withValues(
+                                    alpha: 0.15,
+                                  ),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Icon(
+                                  material.Icons.storefront_rounded,
+                                  color: theme.colorScheme.primary,
+                                  size: 24,
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      cabang.nama,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 15,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      cabang.alamat,
+                                      style: theme.typography.xSmall.copyWith(
+                                        color:
+                                            theme.colorScheme.mutedForeground,
+                                        fontSize: 11.5,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Wrap(
+                                      spacing: 7,
+                                      runSpacing: 6,
+                                      children: [
+                                        _buildBranchInfoPill(
+                                          icon: material.Icons.tag_rounded,
+                                          label: cabang.kode,
+                                        ),
+                                        _buildBranchInfoPill(
+                                          icon: material
+                                              .Icons
+                                              .check_circle_outline_rounded,
+                                          label: jenisKantorLabel(
+                                            cabang.jenisKantor,
+                                          ),
+                                          isBlue: true,
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Icon(
+                                LucideIcons.chevronRight,
+                                color: theme.colorScheme.mutedForeground,
+                                size: 20,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              if (!_isLoadingKantor)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                  child: material.OutlinedButton.icon(
                     onPressed: () {
                       Navigator.pushNamed(
                         context,
@@ -1509,114 +1796,28 @@ class _HomePageState extends State<HomePage> {
                         arguments: user,
                       );
                     },
-                    icon: const Icon(material.Icons.arrow_forward, size: 17),
+                    style: material.OutlinedButton.styleFrom(
+                      foregroundColor: const material.Color(0xFF1565C0),
+                      backgroundColor: material.Colors.white,
+                      minimumSize: const material.Size(double.infinity, 50),
+                      side: const material.BorderSide(
+                        color: material.Color(0xFFBBD5F5),
+                      ),
+                      shape: material.RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    icon: const material.Icon(
+                      material.Icons.storefront_rounded,
+                    ),
                     label: const Text(
-                      'Lihat semua',
-                      style: TextStyle(color: Colors.black),
+                      'Lihat Seluruh Cabang',
+                      style: TextStyle(fontWeight: FontWeight.w700),
                     ),
                   ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: _isLoadingKantor
-                  ? const Center(child: CircularProgressIndicator())
-                  : ListView.builder(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      itemCount: previewCabangList.length,
-                      itemBuilder: (context, index) {
-                        final cabang = previewCabangList[index];
-
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: ButtonStyleOverride(
-                            decoration: (_, _, defaultDecoration) {
-                              if (defaultDecoration is BoxDecoration) {
-                                return defaultDecoration.copyWith(
-                                  boxShadow: const [_softComponentShadow],
-                                );
-                              }
-                              return defaultDecoration;
-                            },
-                            child: CardButton(
-                              onPressed: () {
-                                Navigator.pushNamed(
-                                  context,
-                                  '/agent-list',
-                                  arguments: {
-                                    'KODE_KANTOR': cabang.kode,
-                                    'NAMA_KANTOR': cabang.nama,
-                                    'ALAMAT_KANTOR': cabang.alamat,
-                                    'LATITUDE': cabang.lat,
-                                    'LONGITUDE': cabang.lng,
-                                    'APP_ROLE': appRole,
-                                    'LEVEL_USER': levelUser,
-                                  },
-                                );
-                              },
-                              child: Row(
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(12),
-                                    decoration: BoxDecoration(
-                                      color: theme.colorScheme.primary
-                                          .withValues(alpha: 0.15),
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    child: Icon(
-                                      LucideIcons.store,
-                                      color: theme.colorScheme.primary,
-                                      size: 24,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 16),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          cabang.nama,
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 15,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          cabang.alamat,
-                                          style: theme.typography.xSmall
-                                              .copyWith(
-                                                color: theme
-                                                    .colorScheme
-                                                    .mutedForeground,
-                                              ),
-                                        ),
-                                        const SizedBox(height: 8),
-                                        statusBadge(
-                                          context,
-                                          jenisKantorLabel(
-                                            cabang.jenisKantor,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Icon(
-                                    LucideIcons.chevronRight,
-                                    color: theme.colorScheme.mutedForeground,
-                                    size: 20,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-            ),
-          ],
+                ),
+            ],
+          ),
         ),
       ),
     );
