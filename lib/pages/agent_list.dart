@@ -1,13 +1,17 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart' as flutter_map;
 import 'package:latlong2/latlong.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart' as shadcn;
 import 'package:geocoding/geocoding.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../services/api_service.dart';
+import '../utils/kantor_type.dart';
 import '../widgets/agent_marker.dart';
 import 'agent_task.dart';
 
@@ -20,9 +24,20 @@ const _softCardShadow = BoxShadow(
   offset: Offset(0, 6),
 );
 
-enum _AgentMenuAction { details, location, centerAgent, locationDetails, tasks }
+enum _AgentMenuAction {
+  details,
+  location,
+  centerAgent,
+  locationDetails,
+  chat,
+  tasks,
+}
 
 enum _AgentSortField { name, role }
+
+enum _AgentStatusFilter { all, online, offline }
+
+enum _MapLabelPosition { left, right, above, below }
 
 InputDecoration _filterInputDecoration({required String hint}) {
   return InputDecoration(
@@ -76,12 +91,14 @@ class _AgentMenuItem extends StatelessWidget {
     required this.label,
     this.trailing,
     this.width = 150,
+    this.iconWidget,
   });
 
   final IconData icon;
   final String label;
   final Widget? trailing;
   final double width;
+  final Widget? iconWidget;
 
   @override
   Widget build(BuildContext context) {
@@ -97,7 +114,12 @@ class _AgentMenuItem extends StatelessWidget {
               color: const Color(0xFFEAF2FF),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: Icon(icon, color: const Color(0xFF1565C0), size: 18),
+            alignment: Alignment.center,
+            child: Center(
+              child:
+                  iconWidget ??
+                  Icon(icon, color: const Color(0xFF1565C0), size: 18),
+            ),
           ),
           const SizedBox(width: 11),
           Expanded(
@@ -125,11 +147,14 @@ class AgentListPage extends StatefulWidget {
 }
 
 class _AgentListPageState extends State<AgentListPage>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   final flutter_map.MapController _mapController = flutter_map.MapController();
+  final DraggableScrollableController _mapAgentSheetController =
+      DraggableScrollableController();
   final ScrollController _pageScrollController = ScrollController();
   final TextEditingController _agentSearchController = TextEditingController();
   late final AnimationController _centerAnimationController;
+  late final AnimationController _mapAgentSheetAnimationController;
   LatLng? _animationStartCenter;
   LatLng? _animationTargetCenter;
   double _animationStartZoom = 15;
@@ -144,17 +169,36 @@ class _AgentListPageState extends State<AgentListPage>
   String? _namaKantor;
   String? _alamatKantor;
   bool _isHeadMarketing = false;
+  bool _viewAllBranches = false;
+  bool _mapReady = false;
   bool _canAddTasks = true;
   double? _latitude;
   double? _longitude;
+  String? _officeGeocodeError;
   Offset? _agentMenuTapPosition;
   bool _initialized = false;
   bool _didFocusRequestedAgent = false;
   String? _focusAgentId;
+  String? _selectedMapAgentId;
+  bool _isOfficeInfoSelected = false;
+  Map<String, dynamic> _officeData = {};
   bool _showAgentSearch = false;
   String _selectedAgentRole = '';
+  _AgentStatusFilter _selectedAgentStatus = _AgentStatusFilter.all;
   _AgentSortField _agentSortField = _AgentSortField.name;
   bool _sortAscending = true;
+
+  Map<String, dynamic>? get _selectedMapAgent {
+    final selectedId = _selectedMapAgentId?.trim();
+    if (selectedId == null || selectedId.isEmpty) return null;
+
+    for (final agent in _agents) {
+      if ((agent['NOMOR_AGEN'] ?? '').toString().trim() == selectedId) {
+        return agent;
+      }
+    }
+    return null;
+  }
 
   List<Map<String, dynamic>> get _visibleAgents {
     final query = _agentSearchController.text.trim().toLowerCase();
@@ -164,6 +208,15 @@ class _AgentListPageState extends State<AgentListPage>
           .trim()
           .toUpperCase();
       if (_selectedAgentRole.isNotEmpty && role != _selectedAgentRole) {
+        return false;
+      }
+
+      final isOnline =
+          agent['isTracking'] == true || agent['isTracking']?.toString() == '1';
+      if (_selectedAgentStatus == _AgentStatusFilter.online && !isOnline) {
+        return false;
+      }
+      if (_selectedAgentStatus == _AgentStatusFilter.offline && isOnline) {
         return false;
       }
 
@@ -220,21 +273,44 @@ class _AgentListPageState extends State<AgentListPage>
           .toUpperCase();
       _isHeadMarketing =
           appRole == 'HEAD_MARKETING' || agencyRole == 'KD' || levelUser == '1';
+      _viewAllBranches =
+          arguments['VIEW_ALL_BRANCHES'] == true && _isHeadMarketing;
       _canAddTasks =
           !_isHeadMarketing &&
           appRole != 'HEAD_AGENT' &&
           !['AD', 'AM', 'AS'].contains(agencyRole);
-      _kantor = arguments['KODE_KANTOR']?.toString().trim();
+      _kantor = _viewAllBranches
+          ? null
+          : arguments['KODE_KANTOR']?.toString().trim();
+      final officeData = arguments['DATA_KANTOR'];
+      if (officeData is Map) {
+        _officeData = Map<String, dynamic>.from(officeData);
+      }
       _namaKantor = arguments['NAMA_KANTOR']?.toString().trim();
       _alamatKantor = arguments['ALAMAT_KANTOR']?.toString().trim();
-      _latitude = _parseCoordinate(arguments['LATITUDE']);
-      _longitude = _parseCoordinate(arguments['LONGITUDE']);
+      _latitude = _viewAllBranches
+          ? null
+          : _parseCoordinate(arguments['LATITUDE']);
+      _longitude = _viewAllBranches
+          ? null
+          : _parseCoordinate(arguments['LONGITUDE']);
       _focusAgentId = arguments['FOCUS_AGENT_ID']?.toString().trim();
+      _selectedAgentStatus = switch (arguments['INITIAL_STATUS_FILTER']
+          ?.toString()
+          .trim()
+          .toLowerCase()) {
+        'online' => _AgentStatusFilter.online,
+        'offline' => _AgentStatusFilter.offline,
+        _ => _AgentStatusFilter.all,
+      };
+      if (!_viewAllBranches && !_hasValidCoordinates) {
+        unawaited(_geocodeOfficeAddress());
+      }
     } else if (arguments is String) {
       _kantor = arguments.trim();
     }
 
-    if (_kantor == null || _kantor!.isEmpty) return;
+    if ((_kantor == null || _kantor!.isEmpty) && !_isHeadMarketing) return;
     _loadAgents();
     _agentRefreshTimer = Timer.periodic(
       const Duration(seconds: 10),
@@ -249,6 +325,48 @@ class _AgentListPageState extends State<AgentListPage>
       vsync: this,
       duration: const Duration(milliseconds: 700),
     )..addListener(_updateMapCenterAnimation);
+    _mapAgentSheetAnimationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 320),
+      reverseDuration: const Duration(milliseconds: 240),
+    );
+  }
+
+  void _selectMapAgent(String agentId) {
+    final wasClosed = _selectedMapAgentId == null;
+    setState(() {
+      _isOfficeInfoSelected = false;
+      _selectedMapAgentId = agentId;
+    });
+    if (wasClosed) {
+      _mapAgentSheetAnimationController.forward(from: 0);
+    } else if (_mapAgentSheetAnimationController.isAnimating &&
+        _mapAgentSheetAnimationController.status == AnimationStatus.reverse) {
+      _mapAgentSheetAnimationController.forward();
+    }
+  }
+
+  void _selectOfficeOnMap() {
+    final wasClosed = _selectedMapAgentId == null && !_isOfficeInfoSelected;
+    setState(() {
+      _selectedMapAgentId = null;
+      _isOfficeInfoSelected = true;
+    });
+    if (wasClosed) {
+      _mapAgentSheetAnimationController.forward(from: 0);
+    } else if (_mapAgentSheetAnimationController.isAnimating &&
+        _mapAgentSheetAnimationController.status == AnimationStatus.reverse) {
+      _mapAgentSheetAnimationController.forward();
+    }
+  }
+
+  Future<void> _closeMapAgentSheet() async {
+    await _mapAgentSheetAnimationController.reverse();
+    if (!mounted) return;
+    setState(() {
+      _selectedMapAgentId = null;
+      _isOfficeInfoSelected = false;
+    });
   }
 
   void _updateMapCenterAnimation() {
@@ -288,21 +406,61 @@ class _AgentListPageState extends State<AgentListPage>
 
   LatLng get _initialMapCenter {
     if (_hasValidCoordinates) return LatLng(_latitude!, _longitude!);
-
-    for (final agent in _agents) {
-      final location = _agentCoordinates(agent);
-      if (location != null) return location;
-    }
-
     return const LatLng(-2.5, 118);
   }
 
   void _recenterMap() {
-    if (!_hasValidCoordinates) return;
+    if (!_mapReady || !_hasValidCoordinates) return;
     _animationStartCenter = _mapController.camera.center;
     _animationTargetCenter = LatLng(_latitude!, _longitude!);
     _animationStartZoom = _mapController.camera.zoom;
     _centerAnimationController.forward(from: 0);
+  }
+
+  void _onMapReady() {
+    _mapReady = true;
+    _recenterMap();
+  }
+
+  Future<void> _geocodeOfficeAddress() async {
+    final address = _alamatKantor?.trim();
+    if (address == null || address.isEmpty || address == '-') {
+      if (mounted) {
+        setState(() => _officeGeocodeError = 'Alamat kantor belum tersedia.');
+      }
+      return;
+    }
+
+    try {
+      final locations = await Geocoding().locationFromAddress(address);
+      if (locations.isEmpty) {
+        throw Exception('Alamat kantor tidak ditemukan.');
+      }
+
+      final location = locations.first;
+      if (!location.latitude.isFinite ||
+          !location.longitude.isFinite ||
+          location.latitude < -90 ||
+          location.latitude > 90 ||
+          location.longitude < -180 ||
+          location.longitude > 180) {
+        throw Exception('Koordinat hasil pencarian alamat tidak valid.');
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _latitude = location.latitude;
+        _longitude = location.longitude;
+        _officeGeocodeError = null;
+      });
+      _recenterMap();
+    } catch (error) {
+      debugPrint('Geocoding alamat kantor gagal: $error');
+      if (!mounted) return;
+      setState(() {
+        _officeGeocodeError = error.toString().replaceFirst('Exception: ', '');
+      });
+    }
   }
 
   LatLng? _agentCoordinates(Map<String, dynamic> agent) {
@@ -328,15 +486,653 @@ class _AgentListPageState extends State<AgentListPage>
           if (location == null) return null;
 
           final name = (agent['NAMA_AGEN'] ?? 'Agen').toString();
+          final isOnline =
+              agent['isTracking'] == true ||
+              agent['isTracking']?.toString() == '1';
+          final agentId = agent['NOMOR_AGEN'];
           return flutter_map.Marker(
             point: location,
-            width: 52,
-            height: 60,
-            child: AgentMarker(name: name, identity: agent['NOMOR_AGEN']),
+            width: 200,
+            height: 100,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => _selectMapAgent((agentId ?? '').toString()),
+              child: _buildMapMarkerWithLabel(
+                identity: agentId,
+                label: name,
+                marker: AgentMarker(
+                  name: name,
+                  identity: agentId,
+                  isOnline: isOnline,
+                ),
+              ),
+            ),
           );
         })
         .whereType<flutter_map.Marker>()
         .toList();
+  }
+
+  Widget _buildMapMarkerWithLabel({
+    required Object? identity,
+    required String label,
+    required Widget marker,
+    _MapLabelPosition? preferredPosition,
+  }) {
+    final key = (identity ?? label).toString().trim().toUpperCase();
+    var hash = 0;
+    for (final codeUnit in key.codeUnits) {
+      hash = (hash * 31 + codeUnit) & 0x7FFFFFFF;
+    }
+    final position = preferredPosition ?? _MapLabelPosition.values[hash % 4];
+
+    final labelWidget = Container(
+      width:
+          position == _MapLabelPosition.above ||
+              position == _MapLabelPosition.below
+          ? 128
+          : 84,
+      height: 26,
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFDCE8F8)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x300F172A),
+            blurRadius: 6,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          color: Color(0xFF1E293B),
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+
+    return SizedBox(
+      width: 200,
+      height: 100,
+      child: Stack(
+        alignment: Alignment.center,
+        clipBehavior: Clip.none,
+        children: [
+          marker,
+          if (position == _MapLabelPosition.left)
+            Positioned(left: -8, child: labelWidget)
+          else if (position == _MapLabelPosition.right)
+            Positioned(right: -8, child: labelWidget)
+          else if (position == _MapLabelPosition.above)
+            Positioned(top: -4, child: labelWidget)
+          else
+            Positioned(bottom: -4, child: labelWidget),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMapAgentSheet(
+    Map<String, dynamic> agent, {
+    required double availableHeight,
+  }) {
+    final name = (agent['NAMA_AGEN'] ?? '-').toString().trim();
+    final agentNumber = (agent['NOMOR_AGEN'] ?? '-').toString().trim();
+    final role = (agent['C_AGENCY_JABATAN'] ?? '-').toString().trim();
+    final office = (agent['NAMA_KANTOR'] ?? agent['KODE_KANTOR'] ?? '-')
+        .toString()
+        .trim();
+    final phone = _agentPhoneNumber(agent);
+    final email = (agent['A_EMAIL'] ?? agent['EMAIL'] ?? '').toString().trim();
+    final address = (agent['ALAMAT'] ?? '').toString().trim();
+    final isOnline =
+        agent['isTracking'] == true || agent['isTracking']?.toString() == '1';
+
+    final optionalInfoCount = [
+      phone,
+      email,
+      address,
+    ].where((value) => value.isNotEmpty).length;
+    final minSheetSize =
+        ((176 + MediaQuery.paddingOf(context).bottom) / availableHeight)
+            .clamp(0.16, 0.48)
+            .toDouble();
+    final middleSheetSize = (0.43 + optionalInfoCount * 0.035)
+        .clamp(minSheetSize + 0.06, 0.58)
+        .toDouble();
+
+    return DraggableScrollableSheet(
+      controller: _mapAgentSheetController,
+      initialChildSize: middleSheetSize,
+      minChildSize: minSheetSize,
+      maxChildSize: 1,
+      expand: true,
+      snap: true,
+      snapSizes: [minSheetSize, middleSheetSize, 1],
+      builder: (context, scrollController) => Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF0F172A).withValues(alpha: 0.18),
+              blurRadius: 24,
+              offset: const Offset(0, -6),
+            ),
+          ],
+        ),
+        child: SafeArea(
+          top: false,
+          child: ListView(
+            controller: scrollController,
+            padding: const EdgeInsets.fromLTRB(20, 10, 20, 24),
+            children: [
+              Center(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onVerticalDragUpdate: (details) {
+                    if (!_mapAgentSheetController.isAttached) return;
+                    final nextSize =
+                        _mapAgentSheetController.size -
+                        details.delta.dy / availableHeight;
+                    _mapAgentSheetController.jumpTo(
+                      nextSize.clamp(minSheetSize, 1).toDouble(),
+                    );
+                  },
+                  onVerticalDragEnd: (_) {
+                    if (!_mapAgentSheetController.isAttached) return;
+                    final snapPoints = [minSheetSize, middleSheetSize, 1.0];
+                    final currentSize = _mapAgentSheetController.size;
+                    final nearestSnap = snapPoints.reduce(
+                      (nearest, point) =>
+                          (point - currentSize).abs() <
+                              (nearest - currentSize).abs()
+                          ? point
+                          : nearest,
+                    );
+                    _mapAgentSheetController.animateTo(
+                      nearestSnap,
+                      duration: const Duration(milliseconds: 220),
+                      curve: Curves.easeOutCubic,
+                    );
+                  },
+                  child: Container(
+                    width: 48,
+                    height: 20,
+                    alignment: Alignment.center,
+                    child: Container(
+                      width: 42,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFCBD5E1),
+                        borderRadius: BorderRadius.circular(99),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  AgentMarker(
+                    name: name.isEmpty || name == '-' ? 'Agen' : name,
+                    identity: agentNumber,
+                    isOnline: isOnline,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      name.isEmpty ? 'Detail Agen' : name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF14264D),
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Tutup',
+                    onPressed: _closeMapAgentSheet,
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 1),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isOnline
+                          ? const Color(0xFFDCFCE7)
+                          : const Color(0xFFF1F5F9),
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                    child: Text(
+                      isOnline ? 'Online' : 'Offline',
+                      style: TextStyle(
+                        color: isOnline
+                            ? const Color(0xFF15803D)
+                            : const Color(0xFF64748B),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'ID: $agentNumber',
+                    style: const TextStyle(
+                      color: Color(0xFF64748B),
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (phone.isNotEmpty) ...[
+                    _buildMapAgentChatButton(phone),
+                    const SizedBox(width: 10),
+                  ],
+                  FilledButton.icon(
+                    onPressed: () => _showAgentLocation(agent),
+                    icon: const Icon(Icons.my_location_rounded, size: 17),
+                    label: const Text('Pusatkan'),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(112, 42),
+                      backgroundColor: const Color(0xFF1565C0)
+                          .withValues(alpha: 0.14),
+                      foregroundColor: const Color(0xFF0D47A1),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              const Divider(height: 1, color: Color(0xFFE2E8F0)),
+              const SizedBox(height: 4),
+              _buildMapAgentInfoRow(
+                icon: Icons.work_outline_rounded,
+                label: 'Jabatan',
+                value: role,
+              ),
+              _buildMapAgentInfoRow(
+                icon: Icons.location_city_outlined,
+                label: 'Cabang',
+                value: office,
+              ),
+              if (phone.isNotEmpty)
+                _buildMapAgentInfoRow(
+                  icon: Icons.phone_outlined,
+                  label: 'Nomor telepon',
+                  value: phone,
+                ),
+              if (email.isNotEmpty)
+                _buildMapAgentInfoRow(
+                  icon: Icons.email_outlined,
+                  label: 'Email',
+                  value: email,
+                ),
+              if (address.isNotEmpty)
+                _buildMapAgentInfoRow(
+                  icon: Icons.home_outlined,
+                  label: 'Alamat',
+                  value: address,
+                ),
+              _buildMapAgentInfoRow(
+                icon: Icons.update_rounded,
+                label: 'Terakhir diperbarui',
+                value: _agentLastUpdateText(agent),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMapOfficeSheet({required double availableHeight}) {
+    final officeData = <String, dynamic>{
+      ..._officeData,
+      'KODE_KANTOR': _officeData['KODE_KANTOR'] ?? _kantor,
+      'NAMA_KANTOR': _officeData['NAMA_KANTOR'] ?? _namaKantor,
+      'ALAMAT_KANTOR': _officeData['ALAMAT_KANTOR'] ?? _alamatKantor,
+      'LATITUDE': _officeData['LATITUDE'] ?? _latitude,
+      'LONGITUDE': _officeData['LONGITUDE'] ?? _longitude,
+    };
+    final fields = officeData.entries.toList();
+    final officeName = (_officeData['NAMA_KANTOR'] ?? _namaKantor ?? 'Kantor')
+        .toString()
+        .trim();
+    final minSheetSize =
+        ((188 + MediaQuery.paddingOf(context).bottom) / availableHeight)
+            .clamp(0.16, 0.48)
+            .toDouble();
+    final middleSheetSize = (0.42 + fields.length * 0.025)
+        .clamp(minSheetSize + 0.06, 0.68)
+        .toDouble();
+
+    return DraggableScrollableSheet(
+      controller: _mapAgentSheetController,
+      initialChildSize: middleSheetSize,
+      minChildSize: minSheetSize,
+      maxChildSize: 1,
+      expand: true,
+      snap: true,
+      snapSizes: [minSheetSize, middleSheetSize, 1],
+      builder: (context, scrollController) => Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF0F172A).withValues(alpha: 0.18),
+              blurRadius: 24,
+              offset: const Offset(0, -6),
+            ),
+          ],
+        ),
+        child: SafeArea(
+          top: false,
+          child: ListView(
+            controller: scrollController,
+            padding: const EdgeInsets.fromLTRB(20, 10, 20, 24),
+            children: [
+              _buildMapSheetDragHandle(
+                availableHeight: availableHeight,
+                minSheetSize: minSheetSize,
+                middleSheetSize: middleSheetSize,
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      officeName,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF14264D),
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Tutup',
+                    onPressed: _closeMapAgentSheet,
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              FilledButton.icon(
+                onPressed: _recenterMap,
+                icon: const Icon(Icons.my_location_rounded, size: 17),
+                label: const Text('Pusatkan'),
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size(112, 42),
+                  backgroundColor: const Color(0xFF1565C0)
+                      .withValues(alpha: 0.14),
+                  foregroundColor: const Color(0xFF0D47A1),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              const Divider(height: 1, color: Color(0xFFE2E8F0)),
+              const SizedBox(height: 4),
+              if (fields.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 14),
+                  child: Text(
+                    'Informasi kantor belum tersedia.',
+                    style: TextStyle(color: Color(0xFF64748B)),
+                  ),
+                )
+              else
+                for (final entry in fields)
+                  _buildMapAgentInfoRow(
+                    icon: _officeInfoIcon(entry.key),
+                    label: entry.key
+                        .replaceAll('_', ' ')
+                        .toLowerCase()
+                        .split(' ')
+                        .map(
+                          (word) => word.isEmpty
+                              ? word
+                              : '${word[0].toUpperCase()}${word.substring(1)}',
+                        )
+                        .join(' '),
+                    value:
+                        entry.key == 'KODE_JENIS_KANTOR' &&
+                            entry.value != null &&
+                            entry.value.toString().trim().isNotEmpty
+                        ? '${entry.value} (${jenisKantorLabel(entry.value)})'
+                        : entry.value == null ||
+                              entry.value.toString().trim().isEmpty
+                        ? '-'
+                        : entry.value is Map || entry.value is List
+                        ? jsonEncode(entry.value)
+                        : entry.value.toString(),
+                  ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  IconData _officeInfoIcon(String fieldName) {
+    switch (fieldName.toUpperCase()) {
+      case 'KODE_KANTOR':
+      case 'NOMOR_KANTOR':
+        return Icons.tag_rounded;
+      case 'NAMA_KANTOR':
+        return Icons.business_rounded;
+      case 'ALAMAT_KANTOR':
+      case 'ALAMAT_KANTOR_MUTASI':
+        return Icons.location_on_outlined;
+      case 'KODE_JENIS_KANTOR':
+        return Icons.category_outlined;
+      case 'LATITUDE':
+      case 'LONGITUDE':
+        return Icons.map_outlined;
+      case 'EMAIL':
+        return Icons.email_outlined;
+      case 'TELEPON':
+      case 'NOMOR_TELEPON':
+      case 'NO_TELEPON':
+        return Icons.phone_outlined;
+      default:
+        return Icons.info_outline_rounded;
+    }
+  }
+
+  Widget _buildMapSheetDragHandle({
+    required double availableHeight,
+    required double minSheetSize,
+    required double middleSheetSize,
+  }) {
+    return Center(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onVerticalDragUpdate: (details) {
+          if (!_mapAgentSheetController.isAttached) return;
+          final nextSize =
+              _mapAgentSheetController.size -
+              details.delta.dy / availableHeight;
+          _mapAgentSheetController.jumpTo(
+            nextSize.clamp(minSheetSize, 1).toDouble(),
+          );
+        },
+        onVerticalDragEnd: (_) {
+          if (!_mapAgentSheetController.isAttached) return;
+          final snapPoints = [minSheetSize, middleSheetSize, 1.0];
+          final currentSize = _mapAgentSheetController.size;
+          final nearestSnap = snapPoints.reduce(
+            (nearest, point) =>
+                (point - currentSize).abs() < (nearest - currentSize).abs()
+                ? point
+                : nearest,
+          );
+          _mapAgentSheetController.animateTo(
+            nearestSnap,
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+          );
+        },
+        child: Container(
+          width: 48,
+          height: 20,
+          alignment: Alignment.center,
+          child: Container(
+            width: 42,
+            height: 5,
+            decoration: BoxDecoration(
+              color: const Color(0xFFCBD5E1),
+              borderRadius: BorderRadius.circular(99),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMapAgentChatButton(String phone) {
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () => _openWhatsAppChat(phone),
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Color(0xFF17BE65), Color(0xFF25D366)],
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+            ),
+            borderRadius: BorderRadius.all(Radius.circular(14)),
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              FaIcon(FontAwesomeIcons.whatsapp, color: Colors.white, size: 19),
+              SizedBox(width: 7),
+              Text(
+                'Chat Agen',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openWhatsAppChat(String phone) async {
+    final digits = phone.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Nomor WhatsApp agen belum tersedia.')),
+      );
+      return;
+    }
+
+    final whatsappNumber = digits.startsWith('0')
+        ? '62${digits.substring(1)}'
+        : digits.startsWith('8')
+        ? '62$digits'
+        : digits;
+    final whatsappUri = Uri.https('wa.me', '/$whatsappNumber');
+
+    try {
+      final launched = await launchUrl(
+        whatsappUri,
+        mode: LaunchMode.externalApplication,
+      );
+      if (!launched) {
+        throw Exception('WhatsApp tidak dapat dibuka pada perangkat ini.');
+      }
+    } catch (error) {
+      debugPrint('Gagal membuka chat WhatsApp agen: $error');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.toString().replaceFirst('Exception: ', '')),
+        ),
+      );
+    }
+  }
+
+  String _agentPhoneNumber(Map<String, dynamic> agent) {
+    for (final value in [agent['NOMOR_HP'], agent['I_TELEPON_HP']]) {
+      final phone = (value ?? '').toString().trim();
+      if (phone.replaceAll(RegExp(r'[^0-9]'), '').isNotEmpty) return phone;
+    }
+    return '';
+  }
+
+  Widget _buildMapAgentInfoRow({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 19, color: const Color(0xFF64748B)),
+          const SizedBox(width: 12),
+          SizedBox(
+            width: 128,
+            child: Text(
+              label,
+              style: const TextStyle(color: Color(0xFF64748B), fontSize: 13),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value.isEmpty ? '-' : value,
+              style: const TextStyle(
+                color: Color(0xFF1E293B),
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _showAgentMenu(
@@ -348,10 +1144,13 @@ class _AgentListPageState extends State<AgentListPage>
     const horizontalPadding = 8.0;
     const menuGap = 8.0;
     const menuMargin = 8.0;
+    final isTracking =
+        agent['isTracking'] == true || agent['isTracking']?.toString() == '1';
+    final phone = _agentPhoneNumber(agent);
     final menuWidth = ((screenSize.width - horizontalPadding * 2 - menuGap) / 2)
         .clamp(112.0, 166.0);
     final itemWidth = menuWidth - horizontalPadding * 2;
-    const menuHeight = 156.0;
+    final menuHeight = (isTracking ? 248.0 : 200.0) - (phone.isEmpty ? 48 : 0);
 
     final requestedLeft = tapPosition.dx < screenSize.width / 2
         ? tapPosition.dx
@@ -392,9 +1191,6 @@ class _AgentListPageState extends State<AgentListPage>
     final primaryAnchorY = primaryTop + menuHeight / 2 < screenSize.height / 2
         ? primaryTop
         : primaryTop + menuHeight;
-
-    final isTracking =
-        agent['isTracking'] == true || agent['isTracking']?.toString() == '1';
 
     final action = await showMenu<_AgentMenuAction>(
       context: context,
@@ -455,6 +1251,21 @@ class _AgentListPageState extends State<AgentListPage>
               ),
             ),
           ),
+        if (phone.isNotEmpty)
+          PopupMenuItem(
+            value: _AgentMenuAction.chat,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: _AgentMenuItem(
+              icon: Icons.chat_rounded,
+              iconWidget: const FaIcon(
+                FontAwesomeIcons.whatsapp,
+                color: Color(0xFF25D366),
+                size: 18,
+              ),
+              label: 'Chat Agen',
+              width: itemWidth,
+            ),
+          ),
         PopupMenuItem(
           value: _AgentMenuAction.tasks,
           padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -478,6 +1289,8 @@ class _AgentListPageState extends State<AgentListPage>
       case _AgentMenuAction.locationDetails:
         await _showAgentLocationDetails(agent);
         break;
+      case _AgentMenuAction.chat:
+        await _openWhatsAppChat(phone);
       case _AgentMenuAction.tasks:
         await Navigator.of(context).push(
           MaterialPageRoute(
@@ -567,6 +1380,7 @@ class _AgentListPageState extends State<AgentListPage>
         await _showAgentLocationDetails(agent);
       case _AgentMenuAction.details:
       case _AgentMenuAction.location:
+      case _AgentMenuAction.chat:
       case _AgentMenuAction.tasks:
         break;
     }
@@ -1447,7 +2261,8 @@ class _AgentListPageState extends State<AgentListPage>
   }
 
   Future<void> _loadAgents({bool showLoading = true}) async {
-    if (_kantor == null || _kantor!.isEmpty || _isFetchingAgents) return;
+    if ((_kantor == null || _kantor!.isEmpty) && !_isHeadMarketing) return;
+    if (_isFetchingAgents) return;
     _isFetchingAgents = true;
 
     if (showLoading && mounted) {
@@ -1582,6 +2397,7 @@ class _AgentListPageState extends State<AgentListPage>
 
   Future<void> _showAgentFilters() async {
     var selectedRole = _selectedAgentRole;
+    var selectedStatus = _selectedAgentStatus;
     var sortField = _agentSortField;
     var ascending = _sortAscending;
 
@@ -1705,6 +2521,40 @@ class _AgentListPageState extends State<AgentListPage>
                             onChanged: (value) =>
                                 setSheetState(() => selectedRole = value ?? ''),
                           ),
+                          const SizedBox(height: 18),
+                          const _FilterSectionLabel(
+                            icon: Icons.wifi_tethering_rounded,
+                            title: 'Status agen',
+                          ),
+                          const SizedBox(height: 9),
+                          DropdownButtonFormField<_AgentStatusFilter>(
+                            initialValue: selectedStatus,
+                            decoration: _filterInputDecoration(
+                              hint: 'Pilih status',
+                            ),
+                            icon: const Icon(
+                              Icons.keyboard_arrow_down_rounded,
+                              color: Color(0xFF1565C0),
+                            ),
+                            items: const [
+                              DropdownMenuItem(
+                                value: _AgentStatusFilter.all,
+                                child: Text('Semua status'),
+                              ),
+                              DropdownMenuItem(
+                                value: _AgentStatusFilter.online,
+                                child: Text('Online'),
+                              ),
+                              DropdownMenuItem(
+                                value: _AgentStatusFilter.offline,
+                                child: Text('Offline'),
+                              ),
+                            ],
+                            onChanged: (value) => setSheetState(
+                              () => selectedStatus =
+                                  value ?? _AgentStatusFilter.all,
+                            ),
+                          ),
                           const SizedBox(height: 20),
                           const _FilterSectionLabel(
                             icon: Icons.sort_by_alpha_rounded,
@@ -1783,6 +2633,8 @@ class _AgentListPageState extends State<AgentListPage>
                                   onPressed: () {
                                     setState(() {
                                       _selectedAgentRole = '';
+                                      _selectedAgentStatus =
+                                          _AgentStatusFilter.all;
                                       _agentSortField = _AgentSortField.name;
                                       _sortAscending = true;
                                       _agentSearchController.clear();
@@ -1822,6 +2674,7 @@ class _AgentListPageState extends State<AgentListPage>
                                     onPressed: () {
                                       setState(() {
                                         _selectedAgentRole = selectedRole;
+                                        _selectedAgentStatus = selectedStatus;
                                         _agentSortField = sortField;
                                         _sortAscending = ascending;
                                       });
@@ -1864,12 +2717,16 @@ class _AgentListPageState extends State<AgentListPage>
     _agentSearchController.dispose();
     _pageScrollController.dispose();
     _centerAnimationController.dispose();
+    _mapAgentSheetAnimationController.dispose();
+    _mapAgentSheetController.dispose();
     _mapController.dispose();
     super.dispose();
   }
 
   Widget _buildBranchHero() {
     final address = _alamatKantor;
+    final isAllBranchesView =
+        _isHeadMarketing && (_kantor == null || _kantor!.isEmpty);
 
     return Container(
       width: double.infinity,
@@ -1893,7 +2750,9 @@ class _AgentListPageState extends State<AgentListPage>
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  _namaKantor ?? 'Lokasi Kantor',
+                  isAllBranchesView
+                      ? 'Pantauan Lokasi Agen'
+                      : _namaKantor ?? 'Lokasi Kantor',
                   style: const TextStyle(
                     color: Color(0xFF14264D),
                     fontSize: 18,
@@ -1903,11 +2762,44 @@ class _AgentListPageState extends State<AgentListPage>
               ),
             ],
           ),
+          if (isAllBranchesView) ...[
+            const SizedBox(height: 6),
+            const Text(
+              'Memantau lokasi agen dari seluruh cabang.',
+              style: TextStyle(color: Color(0xFF64748B), fontSize: 13),
+            ),
+          ],
           if (address != null && address.isNotEmpty) ...[
             const SizedBox(height: 6),
             Text(
               address,
               style: const TextStyle(color: Color(0xFF64748B), fontSize: 13),
+            ),
+          ],
+          if (_officeGeocodeError != null) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Icon(
+                  Icons.warning_amber_rounded,
+                  color: Color(0xFFB91C1C),
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Koordinat kantor belum tersedia: $_officeGeocodeError',
+                    style: const TextStyle(
+                      color: Color(0xFFB91C1C),
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: _geocodeOfficeAddress,
+                  child: const Text('Coba lagi'),
+                ),
+              ],
             ),
           ],
           if (_refreshError != null) ...[
@@ -1929,7 +2821,8 @@ class _AgentListPageState extends State<AgentListPage>
                     mapController: _mapController,
                     options: flutter_map.MapOptions(
                       initialCenter: _initialMapCenter,
-                      initialZoom: _hasValidCoordinates ? 15 : 12,
+                      initialZoom: _hasValidCoordinates ? 15 : 4.2,
+                      onMapReady: _onMapReady,
                     ),
                     children: [
                       flutter_map.TileLayer(
@@ -1942,29 +2835,40 @@ class _AgentListPageState extends State<AgentListPage>
                           if (_hasValidCoordinates)
                             flutter_map.Marker(
                               point: LatLng(_latitude!, _longitude!),
-                              width: 50,
-                              height: 50,
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  gradient: const LinearGradient(
-                                    colors: _branchMapGradientColors,
-                                    begin: Alignment.centerLeft,
-                                    end: Alignment.centerRight,
-                                  ),
-                                  shape: BoxShape.circle,
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: const Color(0xFF1565C0)
-                                          .withValues(alpha: 0.35),
-                                      blurRadius: 15,
-                                      spreadRadius: 3,
+                              width: 200,
+                              height: 100,
+                              child: GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: _selectOfficeOnMap,
+                                child: _buildMapMarkerWithLabel(
+                                  identity: _kantor ?? _namaKantor,
+                                  label: _namaKantor ?? 'Kantor',
+                                  preferredPosition: _MapLabelPosition.above,
+                                  marker: Container(
+                                    width: 50,
+                                    height: 50,
+                                    decoration: BoxDecoration(
+                                      gradient: const LinearGradient(
+                                        colors: _branchMapGradientColors,
+                                        begin: Alignment.centerLeft,
+                                        end: Alignment.centerRight,
+                                      ),
+                                      shape: BoxShape.circle,
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: const Color(0xFF1565C0)
+                                              .withValues(alpha: 0.35),
+                                          blurRadius: 15,
+                                          spreadRadius: 3,
+                                        ),
+                                      ],
                                     ),
-                                  ],
-                                ),
-                                child: const Icon(
-                                  shadcn.LucideIcons.mapPin,
-                                  color: Colors.white,
-                                  size: 28,
+                                    child: const Icon(
+                                      shadcn.LucideIcons.mapPin,
+                                      color: Colors.white,
+                                      size: 28,
+                                    ),
+                                  ),
                                 ),
                               ),
                             ),
@@ -2099,6 +3003,8 @@ class _AgentListPageState extends State<AgentListPage>
   @override
   Widget build(BuildContext context) {
     final visibleAgents = _visibleAgents;
+    final selectedMapAgent = _selectedMapAgent;
+    final showMapInfoSheet = selectedMapAgent != null || _isOfficeInfoSelected;
 
     return Scaffold(
       appBar: AppBar(
@@ -2107,11 +3013,13 @@ class _AgentListPageState extends State<AgentListPage>
         elevation: 0,
         title: Text(
           _namaKantor == null || _namaKantor!.isEmpty
-              ? 'Daftar Agen'
+              ? _isHeadMarketing
+                    ? 'Daftar Seluruh Agen'
+                    : 'Daftar Agen'
               : 'Agen - $_namaKantor',
         ),
         actions: [
-          if (_kantor != null && _kantor!.isNotEmpty)
+          if ((_kantor != null && _kantor!.isNotEmpty) || _isHeadMarketing)
             IconButton(
               onPressed: _loadAgents,
               tooltip: 'Muat ulang',
@@ -2121,8 +3029,11 @@ class _AgentListPageState extends State<AgentListPage>
         ],
       ),
       backgroundColor: _pageStart,
-      body: _kantor == null || _kantor!.isEmpty
-          ? const Center(
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          if ((_kantor == null || _kantor!.isEmpty) && !_isHeadMarketing)
+            const Center(
               child: Padding(
                 padding: EdgeInsets.all(24),
                 child: Text(
@@ -2131,7 +3042,8 @@ class _AgentListPageState extends State<AgentListPage>
                 ),
               ),
             )
-          : RefreshIndicator(
+          else
+            RefreshIndicator(
               onRefresh: _loadAgents,
               child: Container(
                 decoration: const BoxDecoration(
@@ -2146,8 +3058,11 @@ class _AgentListPageState extends State<AgentListPage>
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.all(16),
                   children: [
-                    _buildBranchHero(),
-                    const SizedBox(height: 20),
+                    if ((_kantor != null && _kantor!.isNotEmpty) ||
+                        _isHeadMarketing) ...[
+                      _buildBranchHero(),
+                      const SizedBox(height: 20),
+                    ],
                     Row(
                       children: [
                         const Expanded(
@@ -2185,6 +3100,8 @@ class _AgentListPageState extends State<AgentListPage>
                             Icons.tune_rounded,
                             color:
                                 _selectedAgentRole.isNotEmpty ||
+                                    _selectedAgentStatus !=
+                                        _AgentStatusFilter.all ||
                                     _agentSortField != _AgentSortField.name ||
                                     !_sortAscending
                                 ? const Color(0xFF1565C0)
@@ -2291,6 +3208,33 @@ class _AgentListPageState extends State<AgentListPage>
                 ),
               ),
             ),
+          if (showMapInfoSheet)
+            Positioned.fill(
+              child: LayoutBuilder(
+                builder: (context, constraints) => AnimatedBuilder(
+                  animation: _mapAgentSheetAnimationController,
+                  child: selectedMapAgent != null
+                      ? _buildMapAgentSheet(
+                          selectedMapAgent,
+                          availableHeight: constraints.maxHeight,
+                        )
+                      : _buildMapOfficeSheet(
+                          availableHeight: constraints.maxHeight,
+                        ),
+                  builder: (context, child) {
+                    final progress = Curves.easeOutCubic.transform(
+                      _mapAgentSheetAnimationController.value,
+                    );
+                    return Transform.translate(
+                      offset: Offset(0, constraints.maxHeight * (1 - progress)),
+                      child: Opacity(opacity: progress, child: child),
+                    );
+                  },
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 
